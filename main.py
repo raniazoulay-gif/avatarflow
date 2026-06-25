@@ -220,11 +220,7 @@ async def get_avatars(search: str = ""):
     if search:
         s = search.lower()
         avatars = [a for a in avatars if s in a["name"].lower()]
-    # If cache empty, try loading synchronously
-    if not avatars and not search:
-        _fetch_avatars_from_heygen()
-        avatars = _avatars_cache
-    return JSONResponse({"avatars": avatars[:200]})
+    return JSONResponse({"avatars": avatars[:200], "total": len(_avatars_cache)})
 
 
 @app.get("/api/voices")
@@ -232,9 +228,6 @@ async def get_voices(language: str = ""):
     voices = _voices_cache
     if language:
         voices = [v for v in voices if language.lower() in v.get("language", "").lower()]
-    if not voices and not language:
-        _fetch_voices_from_heygen()
-        voices = _voices_cache
     return JSONResponse({"voices": voices})
 
 

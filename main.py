@@ -34,9 +34,8 @@ def heygen_headers():
     }
 
 
-@app.on_event("startup")
-async def startup():
-    init_db()
+# init_db called at module level
+init_db()
 
 
 # ── Pages ──────────────────────────────────────────────────────────────────────
@@ -161,25 +160,72 @@ Return only the script itself, without explanations."""
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@app.get("/api/avatars")
-async def get_avatars():
+# In-memory cache for avatars and voices
+_avatars_cache = None
+_voices_cache = None
+
+def _load_avatars():
+    global _avatars_cache
+    if _avatars_cache is not None:
+        return _avatars_cache
     try:
-        resp = requests.get(f"{HEYGEN_BASE}/v2/avatars", headers=heygen_headers(), timeout=45)
-        resp.raise_for_status()
-        data = resp.json()
+        r = requests.get(f"{HEYGEN_BASE}/v2/avatars", headers=heygen_headers(), timeout=30)
+        data = r.json()
         avatars = data.get("data", {}).get("avatars", [])
+        seen = set()
         result = []
-        for av in avatars:
-            result.append({
-                "avatar_id": av.get("avatar_id", ""),
-                "avatar_name": av.get("avatar_name", ""),
-                "preview_image_url": av.get("preview_image_url", ""),
-            })
-        return JSONResponse({"avatars": result})
+        for a in avatars:
+            aid = a.get("avatar_id")
+            if aid and aid not in seen:
+                seen.add(aid)
+                result.append({
+                    "avatar_id": aid,
+                    "name": a.get("avatar_name", ""),
+                    "preview_image_url": a.get("preview_image_url", ""),
+                })
+        _avatars_cache = result
+        return result
     except Exception as e:
-        return JSONResponse({"error": str(e), "avatars": []}, status_code=500)
+        return []
 
+def _load_voices():
+    global _voices_cache
+    if _voices_cache is not None:
+        return _voices_cache
+    try:
+        r = requests.get(f"{HEYGEN_BASE}/v2/voices", headers=heygen_headers(), timeout=30)
+        data = r.json()
+        voices = data.get("data", {}).get("voices", [])
+        result = []
+        for v in voices:
+            if v.get("voice_id") and v.get("display_name"):
+                result.append({
+                    "voice_id": v.get("voice_id"),
+                    "name": v.get("display_name", ""),
+                    "language": v.get("language", ""),
+                    "gender": v.get("gender", ""),
+                })
+        _voices_cache = result
+        return result
+    except Exception:
+        return []
 
+@app.on_event("startup")
+async def preload_heygen():
+    """Preload avatars and voices in background on startup"""
+    import threading
+    def _load():
+        _load_avatars()
+        _load_voices()
+    threading.Thread(target=_load, daemon=True).start()
+
+@app.get("/api/avatars")
+async def get_avatars(search: str = ""):
+    avatars = _load_avatars()
+    if search:
+        search_lower = search.lower()
+        avatars = [a for a in avatars if search_lower in a["name"].lower()]
+    return JSONResponse({"avatars": avatars[:100]})  # max 100 per request
 @app.get("/api/voices")
 async def get_voices(language: str = ""):
     try:

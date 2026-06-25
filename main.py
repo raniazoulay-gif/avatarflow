@@ -165,7 +165,7 @@ _voices_cache = []
 def _fetch_avatars_from_heygen():
     global _avatars_cache
     try:
-        r = requests.get(f"{HEYGEN_BASE}/v2/avatars", headers=heygen_headers(), timeout=60)
+        r = requests.get(f"{HEYGEN_BASE}/v2/avatars", headers=heygen_headers(), timeout=120)
         data = r.json()
         avatars_raw = data.get("data", {}).get("avatars", [])
         seen = set()
@@ -188,7 +188,7 @@ def _fetch_avatars_from_heygen():
 def _fetch_voices_from_heygen():
     global _voices_cache
     try:
-        r = requests.get(f"{HEYGEN_BASE}/v2/voices", headers=heygen_headers(), timeout=60)
+        r = requests.get(f"{HEYGEN_BASE}/v2/voices", headers=heygen_headers(), timeout=120)
         data = r.json()
         voices_raw = data.get("data", {}).get("voices", [])
         result = []
@@ -229,6 +229,11 @@ async def get_voices(language: str = ""):
     if language:
         voices = [v for v in voices if language.lower() in v.get("language", "").lower()]
     return JSONResponse({"voices": voices})
+
+
+@app.get("/api/cache-status")
+async def cache_status():
+    return JSONResponse({"avatars": len(_avatars_cache), "voices": len(_voices_cache)})
 
 
 @app.post("/api/create-video")

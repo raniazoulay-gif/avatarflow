@@ -47,18 +47,21 @@ async def dashboard(request: Request):
     total = len(videos)
     pending = sum(1 for v in videos if v["status"] == "processing")
     completed = sum(1 for v in videos if v["status"] == "completed")
-    return templates.TemplateResponse("dashboard.html", {
-        "request": request,
-        "videos": videos,
-        "total": total,
-        "pending": pending,
-        "completed": completed,
-    })
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard.html",
+        context={
+            "videos": videos,
+            "total": total,
+            "pending": pending,
+            "completed": completed,
+        }
+    )
 
 
 @app.get("/create", response_class=HTMLResponse)
 async def create_page(request: Request):
-    return templates.TemplateResponse("create.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="create.html", context={})
 
 
 # ── API ────────────────────────────────────────────────────────────────────────

@@ -34,9 +34,6 @@ def heygen_headers():
     }
 
 
-# init_db called at module level
-init_db()
-
 
 # ── Pages ──────────────────────────────────────────────────────────────────────
 
@@ -161,21 +158,20 @@ Return only the script itself, without explanations."""
 
 
 # In-memory cache for avatars and voices
-_avatars_cache = None
-_voices_cache = None
+_avatars_cache = []
+_voices_cache = []
 
-def _load_avatars():
+
+def _fetch_avatars_from_heygen():
     global _avatars_cache
-    if _avatars_cache is not None:
-        return _avatars_cache
     try:
-        r = requests.get(f"{HEYGEN_BASE}/v2/avatars", headers=heygen_headers(), timeout=30)
+        r = requests.get(f"{HEYGEN_BASE}/v2/avatars", headers=heygen_headers(), timeout=60)
         data = r.json()
-        avatars = data.get("data", {}).get("avatars", [])
+        avatars_raw = data.get("data", {}).get("avatars", [])
         seen = set()
         result = []
-        for a in avatars:
-            aid = a.get("avatar_id")
+        for a in avatars_raw:
+            aid = a.get("avatar_id", "")
             if aid and aid not in seen:
                 seen.add(aid)
                 result.append({
@@ -184,20 +180,19 @@ def _load_avatars():
                     "preview_image_url": a.get("preview_image_url", ""),
                 })
         _avatars_cache = result
-        return result
+        print(f"[AvatarFlow] Loaded {len(_avatars_cache)} avatars")
     except Exception as e:
-        return []
+        print(f"[AvatarFlow] Avatar preload error: {e}")
 
-def _load_voices():
+
+def _fetch_voices_from_heygen():
     global _voices_cache
-    if _voices_cache is not None:
-        return _voices_cache
     try:
-        r = requests.get(f"{HEYGEN_BASE}/v2/voices", headers=heygen_headers(), timeout=30)
+        r = requests.get(f"{HEYGEN_BASE}/v2/voices", headers=heygen_headers(), timeout=60)
         data = r.json()
-        voices = data.get("data", {}).get("voices", [])
+        voices_raw = data.get("data", {}).get("voices", [])
         result = []
-        for v in voices:
+        for v in voices_raw:
             if v.get("voice_id") and v.get("display_name"):
                 result.append({
                     "voice_id": v.get("voice_id"),
@@ -206,54 +201,41 @@ def _load_voices():
                     "gender": v.get("gender", ""),
                 })
         _voices_cache = result
-        return result
-    except Exception:
-        return []
+        print(f"[AvatarFlow] Loaded {len(_voices_cache)} voices")
+    except Exception as e:
+        print(f"[AvatarFlow] Voice preload error: {e}")
+
 
 @app.on_event("startup")
-async def preload_heygen():
-    """Preload avatars and voices in background on startup"""
+async def on_startup():
     import threading
-    def _load():
-        _load_avatars()
-        _load_voices()
-    threading.Thread(target=_load, daemon=True).start()
+    init_db()
+    threading.Thread(target=_fetch_avatars_from_heygen, daemon=True).start()
+    threading.Thread(target=_fetch_voices_from_heygen, daemon=True).start()
+
 
 @app.get("/api/avatars")
 async def get_avatars(search: str = ""):
-    avatars = _load_avatars()
+    avatars = _avatars_cache
     if search:
-        search_lower = search.lower()
-        avatars = [a for a in avatars if search_lower in a["name"].lower()]
-    return JSONResponse({"avatars": avatars[:100]})  # max 100 per request
+        s = search.lower()
+        avatars = [a for a in avatars if s in a["name"].lower()]
+    # If cache empty, try loading synchronously
+    if not avatars and not search:
+        _fetch_avatars_from_heygen()
+        avatars = _avatars_cache
+    return JSONResponse({"avatars": avatars[:200]})
+
+
 @app.get("/api/voices")
 async def get_voices(language: str = ""):
-    try:
-        resp = requests.get(f"{HEYGEN_BASE}/v2/voices", headers=heygen_headers(), timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
-        voices = data.get("data", {}).get("voices", [])
-        result = []
-        for v in voices:
-            lang = v.get("language", "")
-            if language:
-                lang_lower = language.lower()
-                voice_lang_lower = lang.lower()
-                if lang_lower == "hebrew" and "hebrew" not in voice_lang_lower and "he-" not in voice_lang_lower and "iw" not in voice_lang_lower:
-                    continue
-                elif lang_lower == "arabic" and "arabic" not in voice_lang_lower and "ar-" not in voice_lang_lower:
-                    continue
-                elif lang_lower == "english" and "english" not in voice_lang_lower and "en-" not in voice_lang_lower:
-                    continue
-            result.append({
-                "voice_id": v.get("voice_id", ""),
-                "display_name": v.get("display_name", ""),
-                "language": lang,
-                "gender": v.get("gender", ""),
-            })
-        return JSONResponse({"voices": result})
-    except Exception as e:
-        return JSONResponse({"error": str(e), "voices": []}, status_code=500)
+    voices = _voices_cache
+    if language:
+        voices = [v for v in voices if language.lower() in v.get("language", "").lower()]
+    if not voices and not language:
+        _fetch_voices_from_heygen()
+        voices = _voices_cache
+    return JSONResponse({"voices": voices})
 
 
 @app.post("/api/create-video")

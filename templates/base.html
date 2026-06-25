@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}AvatarFlow{% endblock %}</title>
+<style>
+  :root {
+    --purple: #6d28d9;
+    --purple-dark: #5b21b6;
+    --purple-light: #8b5cf6;
+    --amber: #f59e0b;
+    --amber-dark: #d97706;
+    --bg: #0f0f1a;
+    --card: #1a1a2e;
+    --card2: #16213e;
+    --text: #e2e8f0;
+    --text-muted: #94a3b8;
+    --border: #2d2d4e;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --error: #ef4444;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    direction: rtl;
+  }
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #1e0a4a 0%, #2d1b69 40%, #4c1d95 70%, #6d28d9 100%);
+    padding: 0 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 4px 20px rgba(109,40,217,0.4);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    height: 64px;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: #fff;
+    text-decoration: none;
+  }
+  .logo span { color: var(--amber); }
+  .nav-links { display: flex; gap: 8px; }
+  .nav-link {
+    color: rgba(255,255,255,0.85);
+    text-decoration: none;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+  }
+  .nav-link:hover, .nav-link.active {
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+  }
+  /* Main */
+  .main { max-width: 1200px; margin: 0 auto; padding: 32px 24px; }
+  /* Cards */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+  }
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 600;
+    transition: all 0.2s;
+    text-decoration: none;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--purple), var(--purple-light));
+    color: #fff;
+    box-shadow: 0 4px 15px rgba(109,40,217,0.4);
+  }
+  .btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(109,40,217,0.5);
+  }
+  .btn-amber {
+    background: linear-gradient(135deg, var(--amber-dark), var(--amber));
+    color: #fff;
+    box-shadow: 0 4px 15px rgba(245,158,11,0.3);
+  }
+  .btn-amber:hover { transform: translateY(-1px); }
+  .btn-outline {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+  .btn-outline:hover { border-color: var(--purple-light); color: var(--purple-light); }
+  .btn-sm { padding: 6px 14px; font-size: 0.85rem; }
+  .btn-lg { padding: 14px 28px; font-size: 1.05rem; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  /* Status badges */
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+  .badge-processing { background: rgba(245,158,11,0.2); color: var(--amber); border: 1px solid rgba(245,158,11,0.3); }
+  .badge-completed { background: rgba(16,185,129,0.2); color: var(--success); border: 1px solid rgba(16,185,129,0.3); }
+  .badge-failed { background: rgba(239,68,68,0.2); color: var(--error); border: 1px solid rgba(239,68,68,0.3); }
+  /* Forms */
+  .form-group { margin-bottom: 20px; }
+  .form-label { display: block; margin-bottom: 6px; font-size: 0.9rem; color: var(--text-muted); font-weight: 500; }
+  .form-input, .form-select, .form-textarea {
+    width: 100%;
+    background: var(--card2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    color: var(--text);
+    font-size: 0.95rem;
+    font-family: inherit;
+    transition: border-color 0.2s;
+    direction: rtl;
+  }
+  .form-input:focus, .form-select:focus, .form-textarea:focus {
+    outline: none;
+    border-color: var(--purple-light);
+    box-shadow: 0 0 0 3px rgba(109,40,217,0.15);
+  }
+  .form-textarea { min-height: 120px; resize: vertical; }
+  /* Radio groups */
+  .radio-group { display: flex; flex-wrap: wrap; gap: 8px; }
+  .radio-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.88rem;
+    transition: all 0.2s;
+  }
+  .radio-label:hover { border-color: var(--purple-light); }
+  .radio-label input { display: none; }
+  .radio-label.selected {
+    background: rgba(109,40,217,0.2);
+    border-color: var(--purple-light);
+    color: var(--purple-light);
+  }
+  /* Spinner */
+  .spinner {
+    width: 20px; height: 20px;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 24px;
+    color: var(--text);
+    font-size: 0.95rem;
+    z-index: 999;
+    transition: transform 0.3s ease;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast.toast-success { border-color: var(--success); }
+  .toast.toast-error { border-color: var(--error); }
+  /* Responsive */
+  @media (max-width: 768px) {
+    .main { padding: 16px; }
+    .header { padding: 0 16px; }
+  }
+</style>
+{% block extra_styles %}{% endblock %}
+</head>
+<body>
+<header class="header">
+  <a href="/" class="logo">
+    <span>&#9654;</span> Avatar<span>Flow</span>
+  </a>
+  <nav class="nav-links">
+    <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Dashboard</a>
+    <a href="/create" class="nav-link {% if request.url.path == '/create' %}active{% endif %}">צור וידאו</a>
+  </nav>
+</header>
+<main class="main">
+  {% block content %}{% endblock %}
+</main>
+<div class="toast" id="toast"></div>
+<script>
+function showToast(msg, type='success') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast toast-${type} show`;
+  setTimeout(() => t.classList.remove('show'), 3500);
+}
+// Radio group selection
+document.querySelectorAll('.radio-label').forEach(label => {
+  label.addEventListener('click', () => {
+    const name = label.querySelector('input')?.name;
+    if (!name) return;
+    document.querySelectorAll(`.radio-label input[name="${name}"]`).forEach(inp => {
+      inp.closest('.radio-label').classList.remove('selected');
+    });
+    label.classList.add('selected');
+    label.querySelector('input').checked = true;
+  });
+  if (label.querySelector('input')?.checked) label.classList.add('selected');
+});
+</script>
+{% block extra_scripts %}{% endblock %}
+</body>
+</html>

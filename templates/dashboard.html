@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+{% block title %}AvatarFlow — Dashboard{% endblock %}
+
+{% block extra_styles %}
+<style>
+  .page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .page-title { font-size: 1.7rem; font-weight: 800; }
+  .page-title span { color: var(--purple-light); }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+  }
+  .stat-icon {
+    width: 52px; height: 52px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.5rem;
+    flex-shrink: 0;
+  }
+  .stat-icon.purple { background: rgba(109,40,217,0.2); }
+  .stat-icon.amber  { background: rgba(245,158,11,0.2); }
+  .stat-icon.green  { background: rgba(16,185,129,0.2); }
+  .stat-num { font-size: 2rem; font-weight: 800; line-height: 1; }
+  .stat-label { font-size: 0.85rem; color: var(--text-muted); margin-top: 2px; }
+
+  .section-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-bottom: 16px;
+    color: var(--text);
+  }
+
+  .videos-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+  }
+  .video-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .video-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(109,40,217,0.2);
+  }
+  .video-thumb {
+    width: 100%;
+    height: 170px;
+    object-fit: cover;
+    background: linear-gradient(135deg, #1e0a4a, #2d1b69);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.5rem;
+    color: rgba(255,255,255,0.2);
+    position: relative;
+  }
+  .video-thumb img {
+    width: 100%; height: 100%; object-fit: cover;
+  }
+  .video-thumb .play-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.3);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .video-card:hover .play-overlay { opacity: 1; }
+  .play-btn-big {
+    width: 50px; height: 50px;
+    background: rgba(109,40,217,0.9);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.2rem;
+    color: #fff;
+  }
+  .video-info { padding: 14px 16px; }
+  .video-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin-bottom: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .video-meta {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .video-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 64px 24px;
+    color: var(--text-muted);
+  }
+  .empty-state .empty-icon { font-size: 4rem; margin-bottom: 16px; }
+  .empty-state h3 { font-size: 1.2rem; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+  .empty-state p { margin-bottom: 24px; }
+
+  .spinner-processing {
+    width: 14px; height: 14px;
+    border: 2px solid rgba(245,158,11,0.3);
+    border-top-color: var(--amber);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    display: inline-block;
+  }
+
+  @media (max-width: 768px) {
+    .stats-row { grid-template-columns: 1fr; }
+    .videos-grid { grid-template-columns: 1fr; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-title">וידאו <span>שיווקי</span> עם AI</div>
+    <div style="color:var(--text-muted);font-size:0.9rem;margin-top:4px;">HeyGen + Claude API</div>
+  </div>
+  <a href="/create" class="btn btn-amber btn-lg">&#9654; צור וידאו חדש</a>
+</div>
+
+<!-- Stats -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-icon purple">&#127909;</div>
+    <div>
+      <div class="stat-num">{{ total }}</div>
+      <div class="stat-label">סה"כ וידאו</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon amber">&#8987;</div>
+    <div>
+      <div class="stat-num">{{ pending }}</div>
+      <div class="stat-label">בעיבוד</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon green">&#10003;</div>
+    <div>
+      <div class="stat-num">{{ completed }}</div>
+      <div class="stat-label">הושלמו</div>
+    </div>
+  </div>
+</div>
+
+<!-- Videos -->
+<div class="card">
+  <div class="section-title">וידאו אחרונים</div>
+
+  {% if videos %}
+  <div class="videos-grid">
+    {% for v in videos %}
+    <div class="video-card" id="vcard-{{ v.heygen_video_id }}">
+      <div class="video-thumb">
+        {% if v.thumbnail_url %}
+          <img src="{{ v.thumbnail_url }}" alt="{{ v.title }}" loading="lazy">
+          {% if v.status == 'completed' and v.video_url %}
+          <div class="play-overlay">
+            <div class="play-btn-big">&#9654;</div>
+          </div>
+          {% endif %}
+        {% else %}
+          &#127909;
+        {% endif %}
+      </div>
+      <div class="video-info">
+        <div class="video-title">{{ v.title or 'וידאו שיווקי' }}</div>
+        <div class="video-meta">
+          {% if v.avatar_name %}<span>&#128100; {{ v.avatar_name }}</span>{% endif %}
+          {% if v.language %}<span>&#127760; {{ v.language }}</span>{% endif %}
+          <span>&#128337; {{ v.created_at.strftime('%d/%m/%y %H:%M') if v.created_at else '' }}</span>
+        </div>
+        <div class="video-actions">
+          <span class="badge badge-{{ v.status }}">
+            {% if v.status == 'processing' %}<span class="spinner-processing"></span> {% endif %}
+            {% if v.status == 'processing' %}בעיבוד
+            {% elif v.status == 'completed' %}הושלם
+            {% else %}נכשל{% endif %}
+          </span>
+          {% if v.status == 'completed' and v.video_url %}
+            <a href="{{ v.video_url }}" target="_blank" class="btn btn-primary btn-sm">&#9654; צפה</a>
+            <a href="{{ v.video_url }}" download class="btn btn-outline btn-sm">&#11015; הורד</a>
+          {% elif v.status == 'processing' %}
+            <button class="btn btn-outline btn-sm" onclick="checkStatus('{{ v.heygen_video_id }}')">&#8635; רענן</button>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">&#127909;</div>
+    <h3>עדיין אין וידאו</h3>
+    <p>צור את הוידאו השיווקי הראשון שלך עם AI</p>
+    <a href="/create" class="btn btn-amber">&#9654; צור וידאו ראשון</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+async function checkStatus(videoId) {
+  try {
+    const res = await fetch(`/api/video-status/${videoId}`);
+    const data = await res.json();
+    if (data.status === 'completed' && data.video_url) {
+      showToast('הוידאו מוכן!', 'success');
+      setTimeout(() => location.reload(), 1000);
+    } else if (data.status === 'failed') {
+      showToast('הוידאו נכשל', 'error');
+      setTimeout(() => location.reload(), 1000);
+    } else {
+      showToast('עדיין בעיבוד...', 'success');
+    }
+  } catch(e) {
+    showToast('שגיאה בבדיקת סטטוס', 'error');
+  }
+}
+
+// Auto-refresh processing videos every 20 seconds
+const processingCards = document.querySelectorAll('.badge-processing');
+if (processingCards.length > 0) {
+  setTimeout(() => location.reload(), 20000);
+}
+</script>
+{% endblock %}

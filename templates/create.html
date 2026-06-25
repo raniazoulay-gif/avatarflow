@@ -1,0 +1,849 @@
+{% extends "base.html" %}
+{% block title %}AvatarFlow — צור וידאו{% endblock %}
+
+{% block extra_styles %}
+<style>
+  .create-layout {
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    gap: 24px;
+    align-items: start;
+  }
+  .steps-sidebar {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    position: sticky;
+    top: 88px;
+  }
+  .step-indicator {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .step-item {
+    display: flex;
+    gap: 12px;
+    position: relative;
+  }
+  .step-item:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    right: 15px;
+    top: 32px;
+    bottom: -4px;
+    width: 2px;
+    background: var(--border);
+  }
+  .step-item.active::after { background: var(--purple-light); }
+  .step-item.done::after { background: var(--success); }
+  .step-num {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.85rem; font-weight: 700;
+    flex-shrink: 0;
+    color: var(--text-muted);
+    background: var(--card2);
+    z-index: 1;
+    margin-bottom: 20px;
+    transition: all 0.3s;
+  }
+  .step-item.active .step-num {
+    border-color: var(--purple-light);
+    background: rgba(109,40,217,0.2);
+    color: var(--purple-light);
+  }
+  .step-item.done .step-num {
+    border-color: var(--success);
+    background: rgba(16,185,129,0.2);
+    color: var(--success);
+  }
+  .step-text { flex: 1; padding-top: 6px; }
+  .step-text .step-title { font-size: 0.9rem; font-weight: 700; }
+  .step-text .step-desc { font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; }
+
+  /* Main panels */
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    display: none;
+  }
+  .panel.active { display: block; }
+  .panel-title {
+    font-size: 1.25rem;
+    font-weight: 800;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .panel-title .icon {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    background: rgba(109,40,217,0.2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.2rem;
+  }
+
+  /* Script area */
+  .script-result {
+    display: none;
+    margin-top: 16px;
+  }
+  .script-result.visible { display: block; }
+  .script-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  #script-textarea {
+    width: 100%;
+    background: var(--card2);
+    border: 1px solid var(--purple-light);
+    border-radius: 10px;
+    padding: 14px;
+    color: var(--text);
+    font-size: 0.95rem;
+    font-family: inherit;
+    min-height: 160px;
+    resize: vertical;
+    direction: rtl;
+  }
+  #script-textarea:focus { outline: none; box-shadow: 0 0 0 3px rgba(109,40,217,0.15); }
+
+  /* Avatar grid */
+  .avatar-search { margin-bottom: 16px; }
+  .avatars-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 12px;
+    max-height: 400px;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+  .avatars-grid::-webkit-scrollbar { width: 6px; }
+  .avatars-grid::-webkit-scrollbar-track { background: var(--card2); border-radius: 3px; }
+  .avatars-grid::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .avatar-item {
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--card2);
+  }
+  .avatar-item:hover { border-color: var(--purple-light); transform: scale(1.02); }
+  .avatar-item.selected {
+    border-color: var(--purple);
+    box-shadow: 0 0 0 3px rgba(109,40,217,0.3);
+  }
+  .avatar-img {
+    width: 100%;
+    aspect-ratio: 3/4;
+    object-fit: cover;
+    display: block;
+    background: linear-gradient(135deg, #1e0a4a, #2d1b69);
+  }
+  .avatar-img-placeholder {
+    width: 100%;
+    aspect-ratio: 3/4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.5rem;
+    background: linear-gradient(135deg, #1e0a4a, #2d1b69);
+    color: rgba(255,255,255,0.3);
+  }
+  .avatar-name {
+    padding: 6px 8px;
+    font-size: 0.75rem;
+    text-align: center;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .avatar-item.selected .avatar-name { color: var(--purple-light); font-weight: 700; }
+
+  /* Loading placeholder */
+  .loading-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 12px;
+  }
+  .skeleton {
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--card2);
+  }
+  .skeleton-img {
+    width: 100%;
+    aspect-ratio: 3/4;
+    background: linear-gradient(90deg, var(--card2) 25%, var(--border) 50%, var(--card2) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.2s infinite;
+  }
+  .skeleton-text {
+    height: 20px;
+    margin: 8px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, var(--card2) 25%, var(--border) 50%, var(--card2) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.2s infinite;
+  }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+
+  /* Voice select */
+  .voice-filters { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .voice-filter-btn {
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .voice-filter-btn.active {
+    background: rgba(109,40,217,0.2);
+    border-color: var(--purple-light);
+    color: var(--purple-light);
+  }
+
+  /* Selected preview */
+  .selected-preview {
+    background: var(--card2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 16px;
+    display: none;
+  }
+  .selected-preview.visible { display: flex; gap: 12px; align-items: center; }
+  .selected-avatar-img {
+    width: 60px; height: 80px;
+    object-fit: cover;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #1e0a4a, #2d1b69);
+    flex-shrink: 0;
+  }
+  .selected-info { flex: 1; }
+  .selected-info .name { font-weight: 700; font-size: 0.95rem; }
+  .selected-info .detail { font-size: 0.82rem; color: var(--text-muted); margin-top: 4px; }
+
+  /* Generate step */
+  .generate-summary {
+    background: var(--card2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    gap: 16px;
+    font-size: 0.9rem;
+  }
+  .summary-row:last-child { border-bottom: none; }
+  .summary-key { color: var(--text-muted); flex-shrink: 0; }
+  .summary-val { font-weight: 600; text-align: left; }
+
+  /* Progress */
+  .progress-section { display: none; }
+  .progress-section.visible { display: block; }
+  .progress-bar-wrap {
+    background: var(--card2);
+    border-radius: 8px;
+    height: 8px;
+    overflow: hidden;
+    margin: 12px 0;
+  }
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--purple), var(--purple-light));
+    border-radius: 8px;
+    transition: width 0.5s ease;
+  }
+  .progress-log {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    min-height: 20px;
+  }
+
+  /* Video result */
+  .video-result { display: none; margin-top: 20px; }
+  .video-result.visible { display: block; }
+  video.result-player {
+    width: 100%;
+    border-radius: 12px;
+    background: #000;
+    max-height: 360px;
+  }
+  .result-actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+
+  /* Navigation buttons */
+  .panel-nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 28px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+
+  @media (max-width: 900px) {
+    .create-layout { grid-template-columns: 1fr; }
+    .steps-sidebar { position: static; }
+    .step-indicator { flex-direction: row; gap: 0; }
+    .step-item { flex-direction: column; align-items: center; text-align: center; flex: 1; }
+    .step-item::after { display: none; }
+    .step-text { display: none; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;">
+  <a href="/" class="btn btn-outline btn-sm">&#8594; חזור</a>
+  <h1 style="font-size:1.4rem;font-weight:800;">יצירת וידאו שיווקי</h1>
+</div>
+
+<div class="create-layout">
+  <!-- Main panels -->
+  <div>
+    <!-- Panel 1: Script -->
+    <div class="panel active" id="panel-1">
+      <div class="panel-title">
+        <div class="icon">&#9997;</div>
+        שלב 1 — סקריפט
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">שם המוצר / שירות *</label>
+        <input type="text" id="product" class="form-input" placeholder="לדוגמה: קרם לחות פרמיום, קורס אונליין..." />
+      </div>
+      <div class="form-group">
+        <label class="form-label">קהל יעד *</label>
+        <input type="text" id="audience" class="form-input" placeholder="לדוגמה: נשים 25-45, יזמים, בעלי עסקים..." />
+      </div>
+      <div class="form-group">
+        <label class="form-label">שפה</label>
+        <div class="radio-group" id="lang-group">
+          <label class="radio-label selected"><input type="radio" name="language" value="Hebrew" checked> עברית</label>
+          <label class="radio-label"><input type="radio" name="language" value="English"> English</label>
+          <label class="radio-label"><input type="radio" name="language" value="Arabic"> العربية</label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">טון</label>
+        <div class="radio-group">
+          <label class="radio-label selected"><input type="radio" name="tone" value="Professional" checked> מקצועי</label>
+          <label class="radio-label"><input type="radio" name="tone" value="Friendly"> ידידותי</label>
+          <label class="radio-label"><input type="radio" name="tone" value="Energetic"> אנרגטי</label>
+          <label class="radio-label"><input type="radio" name="tone" value="Luxury"> יוקרתי</label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">אורך וידאו</label>
+        <div class="radio-group">
+          <label class="radio-label selected"><input type="radio" name="duration" value="30" checked> 30 שניות</label>
+          <label class="radio-label"><input type="radio" name="duration" value="60"> 60 שניות</label>
+          <label class="radio-label"><input type="radio" name="duration" value="90"> 90 שניות</label>
+        </div>
+      </div>
+
+      <button class="btn btn-primary btn-lg" id="btn-gen-script" onclick="generateScript()">
+        &#10024; צור סקריפט עם AI
+      </button>
+
+      <div class="script-result" id="script-result">
+        <div class="script-label">
+          <span>סקריפט (ניתן לעריכה)</span>
+          <button class="btn btn-outline btn-sm" onclick="generateScript()">&#8635; צור מחדש</button>
+        </div>
+        <textarea id="script-textarea" placeholder="הסקריפט שלך יופיע כאן..."></textarea>
+      </div>
+
+      <div class="panel-nav">
+        <div></div>
+        <button class="btn btn-primary" onclick="goToStep(2)" id="btn-next-1">הבא — אווטר וקול &#8592;</button>
+      </div>
+    </div>
+
+    <!-- Panel 2: Avatar & Voice -->
+    <div class="panel" id="panel-2">
+      <div class="panel-title">
+        <div class="icon">&#128100;</div>
+        שלב 2 — אווטר וקול
+      </div>
+
+      <div class="form-group avatar-search">
+        <label class="form-label">חפש אווטר</label>
+        <input type="text" id="avatar-search" class="form-input" placeholder="חיפוש לפי שם..." oninput="filterAvatars(this.value)" />
+      </div>
+
+      <div id="avatars-container">
+        <div class="loading-grid" id="avatars-loading">
+          {% for i in range(8) %}
+          <div class="skeleton"><div class="skeleton-img"></div><div class="skeleton-text"></div></div>
+          {% endfor %}
+        </div>
+        <div class="avatars-grid" id="avatars-grid" style="display:none;"></div>
+        <div id="avatars-error" style="display:none;color:var(--error);padding:16px;text-align:center;"></div>
+      </div>
+
+      <div style="margin-top:24px;">
+        <label class="form-label">בחר קול</label>
+        <div class="voice-filters" id="voice-filters">
+          <button class="voice-filter-btn active" onclick="filterVoices('all', this)">הכל</button>
+          <button class="voice-filter-btn" onclick="filterVoices('Male', this)">זכר</button>
+          <button class="voice-filter-btn" onclick="filterVoices('Female', this)">נקבה</button>
+        </div>
+        <div id="voices-loading" style="color:var(--text-muted);font-size:0.9rem;">טוען קולות...</div>
+        <select id="voice-select" class="form-select" style="display:none;" onchange="onVoiceChange()">
+          <option value="">-- בחר קול --</option>
+        </select>
+      </div>
+
+      <div class="selected-preview" id="selected-preview">
+        <img src="" alt="" class="selected-avatar-img" id="preview-img">
+        <div class="selected-info">
+          <div class="name" id="preview-name"></div>
+          <div class="detail" id="preview-voice"></div>
+        </div>
+      </div>
+
+      <div class="panel-nav">
+        <button class="btn btn-outline" onclick="goToStep(1)">&#8594; חזור</button>
+        <button class="btn btn-primary" onclick="goToStep(3)" id="btn-next-2">הבא — צור וידאו &#8592;</button>
+      </div>
+    </div>
+
+    <!-- Panel 3: Generate -->
+    <div class="panel" id="panel-3">
+      <div class="panel-title">
+        <div class="icon">&#127909;</div>
+        שלב 3 — יצירת וידאו
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">כותרת לוידאו</label>
+        <input type="text" id="video-title" class="form-input" placeholder="לדוגמה: פרסומת קרם קיץ 2025" />
+      </div>
+
+      <div class="generate-summary" id="gen-summary">
+        <div class="summary-row">
+          <span class="summary-key">סקריפט</span>
+          <span class="summary-val" id="sum-script" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+        </div>
+        <div class="summary-row">
+          <span class="summary-key">אווטר</span>
+          <span class="summary-val" id="sum-avatar"></span>
+        </div>
+        <div class="summary-row">
+          <span class="summary-key">קול</span>
+          <span class="summary-val" id="sum-voice"></span>
+        </div>
+        <div class="summary-row">
+          <span class="summary-key">שפה</span>
+          <span class="summary-val" id="sum-lang"></span>
+        </div>
+      </div>
+
+      <button class="btn btn-amber btn-lg" id="btn-create" onclick="createVideo()">
+        &#127909; צור וידאו
+      </button>
+
+      <div class="progress-section" id="progress-section">
+        <div style="font-size:0.95rem;font-weight:600;margin-top:16px;">מעבד את הוידאו...</div>
+        <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar" style="width:0%"></div></div>
+        <div class="progress-log" id="progress-log">שולח בקשה ל-HeyGen...</div>
+      </div>
+
+      <div class="video-result" id="video-result">
+        <div style="font-size:1rem;font-weight:700;color:var(--success);margin-bottom:12px;">&#10004; הוידאו מוכן!</div>
+        <video class="result-player" id="result-video" controls></video>
+        <div class="result-actions">
+          <a id="btn-download" href="#" download class="btn btn-amber">&#11015; הורד</a>
+          <a href="/" class="btn btn-outline">&#127968; חזור ל-Dashboard</a>
+          <button class="btn btn-primary" onclick="resetCreate()">&#43; וידאו חדש</button>
+        </div>
+      </div>
+
+      <div class="panel-nav">
+        <button class="btn btn-outline" onclick="goToStep(2)">&#8594; חזור</button>
+        <div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sidebar steps -->
+  <div class="steps-sidebar">
+    <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:16px;font-weight:600;">התקדמות</div>
+    <div class="step-indicator">
+      <div class="step-item active" id="si-1">
+        <div class="step-num" id="sn-1">1</div>
+        <div class="step-text">
+          <div class="step-title">סקריפט</div>
+          <div class="step-desc">כתוב עם Claude AI</div>
+        </div>
+      </div>
+      <div class="step-item" id="si-2">
+        <div class="step-num" id="sn-2">2</div>
+        <div class="step-text">
+          <div class="step-title">אווטר וקול</div>
+          <div class="step-desc">בחר דמות וקריין</div>
+        </div>
+      </div>
+      <div class="step-item" id="si-3">
+        <div class="step-num" id="sn-3">3</div>
+        <div class="step-text">
+          <div class="step-title">צור וידאו</div>
+          <div class="step-desc">HeyGen AI</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border);">
+      <div style="font-size:0.82rem;color:var(--text-muted);margin-bottom:10px;font-weight:600;">תצוגה מקדימה</div>
+      <div id="sidebar-preview" style="text-align:center;color:var(--text-muted);font-size:0.85rem;">
+        <div style="font-size:2.5rem;margin-bottom:8px;">&#128100;</div>
+        בחר אווטר לתצוגה
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// State
+let allAvatars = [];
+let allVoices = [];
+let selectedAvatarId = '';
+let selectedAvatarName = '';
+let selectedAvatarImg = '';
+let selectedVoiceId = '';
+let selectedVoiceName = '';
+let currentStep = 1;
+let pollingInterval = null;
+let currentVideoId = '';
+
+// ── Step navigation ────────────────────────────────────────────────────────────
+function goToStep(n) {
+  if (n === 2 && !getScript()) { showToast('נא לצור סקריפט תחילה', 'error'); return; }
+  if (n === 3 && !selectedAvatarId) { showToast('נא לבחור אווטר', 'error'); return; }
+  if (n === 3 && !selectedVoiceId) { showToast('נא לבחור קול', 'error'); return; }
+
+  currentStep = n;
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(`panel-${n}`).classList.add('active');
+
+  document.querySelectorAll('.step-item').forEach((s, i) => {
+    s.classList.remove('active', 'done');
+    const num = i + 1;
+    if (num < n) { s.classList.add('done'); document.getElementById(`sn-${num}`).textContent = '✓'; }
+    else if (num === n) { s.classList.add('active'); document.getElementById(`sn-${num}`).textContent = num; }
+    else { document.getElementById(`sn-${num}`).textContent = num; }
+  });
+
+  if (n === 3) updateSummary();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function getScript() { return document.getElementById('script-textarea').value.trim(); }
+function getLang() { return document.querySelector('input[name="language"]:checked')?.value || 'Hebrew'; }
+function getTone() { return document.querySelector('input[name="tone"]:checked')?.value || 'Professional'; }
+function getDuration() { return document.querySelector('input[name="duration"]:checked')?.value || '30'; }
+
+// ── Script generation ──────────────────────────────────────────────────────────
+async function generateScript() {
+  const product = document.getElementById('product').value.trim();
+  const audience = document.getElementById('audience').value.trim();
+  if (!product) { showToast('נא להכניס שם מוצר', 'error'); return; }
+  if (!audience) { showToast('נא להכניס קהל יעד', 'error'); return; }
+
+  const btn = document.getElementById('btn-gen-script');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> יוצר סקריפט...';
+
+  try {
+    const res = await fetch('/api/generate-script', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product, audience, language: getLang(), tone: getTone(), duration: getDuration() })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    document.getElementById('script-textarea').value = data.script;
+    document.getElementById('script-result').classList.add('visible');
+    showToast('הסקריפט מוכן!', 'success');
+  } catch(e) {
+    showToast('שגיאה ביצירת סקריפט: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '✨ צור סקריפט עם AI';
+  }
+}
+
+// ── Avatars ────────────────────────────────────────────────────────────────────
+async function loadAvatars() {
+  try {
+    const res = await fetch('/api/avatars');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    allAvatars = data.avatars || [];
+    renderAvatars(allAvatars);
+    document.getElementById('avatars-loading').style.display = 'none';
+    document.getElementById('avatars-grid').style.display = 'grid';
+  } catch(e) {
+    document.getElementById('avatars-loading').style.display = 'none';
+    const err = document.getElementById('avatars-error');
+    err.style.display = 'block';
+    err.textContent = 'שגיאה בטעינת אווטרים: ' + e.message;
+  }
+}
+
+function renderAvatars(avatars) {
+  const grid = document.getElementById('avatars-grid');
+  grid.innerHTML = '';
+  if (avatars.length === 0) {
+    grid.innerHTML = '<div style="color:var(--text-muted);padding:24px;text-align:center;grid-column:1/-1;">לא נמצאו אווטרים</div>';
+    return;
+  }
+  avatars.forEach(av => {
+    const div = document.createElement('div');
+    div.className = 'avatar-item' + (av.avatar_id === selectedAvatarId ? ' selected' : '');
+    div.dataset.id = av.avatar_id;
+    div.dataset.name = av.avatar_name;
+    div.dataset.img = av.preview_image_url || '';
+    div.onclick = () => selectAvatar(av.avatar_id, av.avatar_name, av.preview_image_url || '');
+
+    const imgPart = av.preview_image_url
+      ? `<img src="${av.preview_image_url}" alt="${av.avatar_name}" class="avatar-img" loading="lazy" onerror="this.style.display='none';this.nextSibling.style.display='flex'"><div class="avatar-img-placeholder" style="display:none;">👤</div>`
+      : `<div class="avatar-img-placeholder">👤</div>`;
+
+    div.innerHTML = `${imgPart}<div class="avatar-name">${av.avatar_name}</div>`;
+    grid.appendChild(div);
+  });
+}
+
+function filterAvatars(q) {
+  const filtered = q ? allAvatars.filter(av => av.avatar_name.toLowerCase().includes(q.toLowerCase())) : allAvatars;
+  renderAvatars(filtered);
+}
+
+function selectAvatar(id, name, img) {
+  selectedAvatarId = id;
+  selectedAvatarName = name;
+  selectedAvatarImg = img;
+
+  document.querySelectorAll('.avatar-item').forEach(el => {
+    el.classList.toggle('selected', el.dataset.id === id);
+  });
+
+  // Sidebar preview
+  const sb = document.getElementById('sidebar-preview');
+  if (img) {
+    sb.innerHTML = `<img src="${img}" alt="${name}" style="width:80px;height:106px;object-fit:cover;border-radius:10px;border:2px solid var(--purple-light)"><div style="margin-top:8px;font-size:0.85rem;font-weight:700;color:var(--text)">${name}</div>`;
+  } else {
+    sb.innerHTML = `<div style="font-size:2.5rem;margin-bottom:8px;">👤</div><div style="font-size:0.85rem;font-weight:700;color:var(--text)">${name}</div>`;
+  }
+
+  // Selected preview
+  const prev = document.getElementById('selected-preview');
+  prev.classList.add('visible');
+  if (img) document.getElementById('preview-img').src = img;
+  document.getElementById('preview-name').textContent = name;
+  updatePreviewVoice();
+}
+
+// ── Voices ────────────────────────────────────────────────────────────────────
+async function loadVoices() {
+  const lang = getLang();
+  try {
+    const res = await fetch(`/api/voices?language=${encodeURIComponent(lang)}`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    allVoices = data.voices || [];
+    renderVoices(allVoices);
+    document.getElementById('voices-loading').style.display = 'none';
+    document.getElementById('voice-select').style.display = 'block';
+  } catch(e) {
+    document.getElementById('voices-loading').textContent = 'שגיאה בטעינת קולות: ' + e.message;
+  }
+}
+
+function renderVoices(voices) {
+  const sel = document.getElementById('voice-select');
+  const prev = selectedVoiceId;
+  sel.innerHTML = '<option value="">-- בחר קול --</option>';
+  voices.forEach(v => {
+    const opt = document.createElement('option');
+    opt.value = v.voice_id;
+    opt.textContent = `${v.display_name} (${v.language}${v.gender ? ', ' + v.gender : ''})`;
+    sel.appendChild(opt);
+  });
+  if (prev) sel.value = prev;
+}
+
+function filterVoices(gender, btn) {
+  document.querySelectorAll('.voice-filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const filtered = gender === 'all' ? allVoices : allVoices.filter(v => v.gender === gender);
+  renderVoices(filtered);
+}
+
+function onVoiceChange() {
+  const sel = document.getElementById('voice-select');
+  selectedVoiceId = sel.value;
+  const opt = sel.options[sel.selectedIndex];
+  selectedVoiceName = opt ? opt.textContent : '';
+  updatePreviewVoice();
+}
+
+function updatePreviewVoice() {
+  document.getElementById('preview-voice').textContent = selectedVoiceName || '';
+}
+
+// ── Summary ───────────────────────────────────────────────────────────────────
+function updateSummary() {
+  const script = getScript();
+  document.getElementById('sum-script').textContent = script.substring(0, 60) + (script.length > 60 ? '...' : '');
+  document.getElementById('sum-avatar').textContent = selectedAvatarName || '—';
+  document.getElementById('sum-voice').textContent = selectedVoiceName || '—';
+  document.getElementById('sum-lang').textContent = getLang();
+  document.getElementById('video-title').placeholder = `פרסומת — ${document.getElementById('product').value || 'מוצר'}`;
+}
+
+// ── Create video ──────────────────────────────────────────────────────────────
+async function createVideo() {
+  const script = getScript();
+  const title = document.getElementById('video-title').value.trim() || `פרסומת — ${document.getElementById('product').value || 'מוצר'}`;
+
+  if (!script) { showToast('חסר סקריפט', 'error'); return; }
+  if (!selectedAvatarId) { showToast('חסר אווטר', 'error'); return; }
+  if (!selectedVoiceId) { showToast('חסר קול', 'error'); return; }
+
+  const btn = document.getElementById('btn-create');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> שולח...';
+
+  const progress = document.getElementById('progress-section');
+  const bar = document.getElementById('progress-bar');
+  const log = document.getElementById('progress-log');
+  progress.classList.add('visible');
+  bar.style.width = '10%';
+  log.textContent = 'שולח בקשה ל-HeyGen...';
+
+  try {
+    const res = await fetch('/api/create-video', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        script,
+        avatar_id: selectedAvatarId,
+        avatar_name: selectedAvatarName,
+        voice_id: selectedVoiceId,
+        title,
+        language: getLang()
+      })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    currentVideoId = data.video_id;
+    bar.style.width = '30%';
+    log.textContent = 'הוידאו בעיבוד... (עלול לקחת 1-5 דקות)';
+    btn.innerHTML = '<span class="spinner"></span> מעבד...';
+
+    pollStatus(currentVideoId, bar, log);
+  } catch(e) {
+    btn.disabled = false;
+    btn.innerHTML = '🎬 צור וידאו';
+    progress.classList.remove('visible');
+    showToast('שגיאה: ' + e.message, 'error');
+  }
+}
+
+function pollStatus(videoId, bar, log) {
+  let elapsed = 0;
+  pollingInterval = setInterval(async () => {
+    elapsed += 10;
+    // Fake progress up to 85%
+    const pct = Math.min(30 + elapsed * 0.9, 85);
+    bar.style.width = pct + '%';
+    log.textContent = `מעבד... (${elapsed}s)`;
+
+    try {
+      const res = await fetch(`/api/video-status/${videoId}`);
+      const data = await res.json();
+
+      if (data.status === 'completed' && data.video_url) {
+        clearInterval(pollingInterval);
+        bar.style.width = '100%';
+        log.textContent = 'הוידאו מוכן!';
+        showVideoResult(data.video_url);
+      } else if (data.status === 'failed') {
+        clearInterval(pollingInterval);
+        bar.style.width = '100%';
+        bar.style.background = 'var(--error)';
+        log.textContent = 'הוידאו נכשל.';
+        showToast('יצירת הוידאו נכשלה', 'error');
+        const btn = document.getElementById('btn-create');
+        btn.disabled = false;
+        btn.innerHTML = '🎬 נסה שוב';
+      }
+    } catch(e) {
+      // Keep polling
+    }
+  }, 10000);
+}
+
+function showVideoResult(videoUrl) {
+  const result = document.getElementById('video-result');
+  result.classList.add('visible');
+  document.getElementById('result-video').src = videoUrl;
+  document.getElementById('btn-download').href = videoUrl;
+  showToast('הוידאו מוכן!', 'success');
+  const btn = document.getElementById('btn-create');
+  btn.style.display = 'none';
+}
+
+function resetCreate() {
+  window.location.href = '/create';
+}
+
+// ── Radio groups fix ───────────────────────────────────────────────────────────
+document.querySelectorAll('.radio-label').forEach(label => {
+  label.addEventListener('click', () => {
+    const input = label.querySelector('input');
+    if (!input) return;
+    const name = input.name;
+    document.querySelectorAll(`.radio-label input[name="${name}"]`).forEach(inp => {
+      inp.closest('.radio-label').classList.remove('selected');
+    });
+    label.classList.add('selected');
+    input.checked = true;
+  });
+  if (label.querySelector('input')?.checked) label.classList.add('selected');
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadAvatars();
+loadVoices();
+</script>
+{% endblock %}

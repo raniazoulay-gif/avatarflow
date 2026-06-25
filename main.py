@@ -164,7 +164,7 @@ Return only the script itself, without explanations."""
 @app.get("/api/avatars")
 async def get_avatars():
     try:
-        resp = requests.get(f"{HEYGEN_BASE}/v2/avatars", headers=heygen_headers(), timeout=15)
+        resp = requests.get(f"{HEYGEN_BASE}/v2/avatars", headers=heygen_headers(), timeout=45)
         resp.raise_for_status()
         data = resp.json()
         avatars = data.get("data", {}).get("avatars", [])

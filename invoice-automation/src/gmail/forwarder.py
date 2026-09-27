@@ -34,6 +34,7 @@ class ForwardResult:
     forwarded: bool
     reason: str
     target_message_id: str | None = None
+    existing_state: str | None = None  # state of a pre-existing forward row
 
 
 class SafetyGuard:
@@ -114,7 +115,11 @@ class Forwarder:
         target = self.settings.target_gmail_account
         reservation = repo.reserve_forward(email_row, target)
         if reservation is None:
-            return ForwardResult(False, "Already forwarded (or forward in progress) - skipped")
+            existing = repo.get_forward(email_row.message_id)
+            state = existing.state if existing else None
+            reason = ("Already forwarded - skipped" if state == "SENT" else
+                      f"Previous forward attempt is {state} - manual review required, not resent")
+            return ForwardResult(False, reason, existing_state=state)
 
         # 3) Re-check right before the network call (defence in depth).
         if not self.guard.allowed(is_backfill=is_backfill):
@@ -124,6 +129,8 @@ class Forwarder:
         try:
             raw = self.gmail.get_raw_message(email_row.message_id)
             msg = build_forward_message(raw, self.settings.source_gmail_account or "me", target)
+            # send_raw is NOT retried: a timeout after Gmail accepted the message
+            # would otherwise cause a duplicate forward.
             sent = self.gmail.send_raw(msg)
         except Exception as exc:
             repo.mark_forward_failed(reservation, f"{type(exc).__name__}: {exc}")

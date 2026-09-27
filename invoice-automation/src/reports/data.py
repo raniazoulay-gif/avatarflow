@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from ..config.settings import Settings
 from ..database.models import Email, EmailStatus
@@ -28,9 +28,18 @@ class ReportData:
     suppliers: list[dict] = field(default_factory=list)
 
 
-def day_window(d: date, settings: Settings) -> tuple[datetime, datetime]:
-    start = datetime.combine(d, time.min, tzinfo=settings.tz)
-    return start, start + timedelta(days=1)
+def report_window(d: date, settings: Settings) -> tuple[datetime, datetime]:
+    """The 24h ending at DAILY_REPORT_TIME on day d (local TIMEZONE), in UTC.
+
+    Consecutive daily reports tile time without gaps, so emails processed after
+    18:00 appear in the next day's report instead of in none.
+    """
+    end_local = datetime.combine(
+        d, time(settings.report_hour, settings.report_minute), tzinfo=settings.tz)
+    start_local = datetime.combine(
+        d - timedelta(days=1), time(settings.report_hour, settings.report_minute),
+        tzinfo=settings.tz)
+    return start_local.astimezone(UTC), end_local.astimezone(UTC)
 
 
 def _file_type(name: str) -> str:
@@ -80,7 +89,7 @@ def email_row(e: Email, settings: Settings) -> dict:
 
 
 def build_report(repo: Repository, d: date, settings: Settings) -> ReportData:
-    start, end = day_window(d, settings)
+    start, end = report_window(d, settings)
     emails = repo.emails_processed_between(start, end)
     dry = not settings.forward_switches_on
     rows = [email_row(e, settings) for e in emails]

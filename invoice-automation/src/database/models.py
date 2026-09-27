@@ -17,6 +17,30 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
+
+
+class UTCDateTime(TypeDecorator):
+    """Stores UTC, always returns timezone-aware UTC datetimes.
+
+    SQLite drops tzinfo, so values are normalised to naive UTC on write and
+    re-tagged as UTC on read - identical behaviour on SQLite and PostgreSQL.
+    """
+
+    impl = DateTime
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            raise ValueError("naive datetime not allowed; use timezone-aware values")
+        return value.astimezone(UTC).replace(tzinfo=None)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def utcnow() -> datetime:
@@ -53,8 +77,8 @@ class Email(Base):
     sender_name: Mapped[str | None] = mapped_column(String(512))
     sender_email: Mapped[str | None] = mapped_column(String(512), index=True)
     subject: Mapped[str | None] = mapped_column(String(1024))
-    received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
-    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    received_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), index=True)
+    processed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), index=True)
     status: Mapped[str] = mapped_column(String(64), default=EmailStatus.PENDING, index=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(Text)
@@ -137,7 +161,7 @@ class Forward(Base):
     message_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     state: Mapped[str] = mapped_column(String(16))  # SENDING / SENT / FAILED
     forwarded: Mapped[bool] = mapped_column(Boolean, default=False)
-    forward_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    forward_timestamp: Mapped[datetime | None] = mapped_column(UTCDateTime())
     target_email: Mapped[str | None] = mapped_column(String(512))
     target_message_id: Mapped[str | None] = mapped_column(String(128))
     error: Mapped[str | None] = mapped_column(Text)
@@ -152,4 +176,4 @@ class SystemState(Base):
 
     key: Mapped[str] = mapped_column(String(128), primary_key=True)
     value: Mapped[str | None] = mapped_column(Text)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)

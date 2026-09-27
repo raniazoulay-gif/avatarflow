@@ -64,9 +64,12 @@ class Decision:
 
 
 def decide(score: float, sender_email: str, settings: Settings, *, is_backfill: bool = False,
-           is_invoice: bool = True) -> Decision:
+           is_invoice: bool = True, has_ai: bool = True) -> Decision:
     b = band(score, settings)
     dry = not settings.forward_switches_on
+    if b == HIGH and not has_ai:
+        # Never auto-forward without an AI opinion, whatever the thresholds are.
+        b = MEDIUM
 
     if b == HIGH and is_invoice:
         if settings.supplier_whitelist_enabled and not supplier_whitelisted(sender_email, settings):

@@ -103,10 +103,27 @@ class Repository:
         return self.s.scalar(
             select(Attachment)
             .where(Attachment.sha256 == sha256, Attachment.processed.is_(True),
-                   Attachment.error.is_(None))
+                   Attachment.error.is_(None), Attachment.classification_json.is_not(None))
             .order_by(Attachment.id)
             .limit(1)
         )
+
+    def find_forwarded_duplicate(self, shas: list[str], exclude_email_id: int) -> str | None:
+        """message_id of another email carrying one of these files that was (or
+        would have been) forwarded - independent of any cached classification."""
+        if not shas:
+            return None
+        rows = self.s.execute(
+            select(Email.message_id, Email.would_forward, Forward.state)
+            .join(Attachment, Attachment.email_id == Email.id)
+            .outerjoin(Forward, Forward.email_id == Email.id)
+            .where(Attachment.sha256.in_(shas), Email.id != exclude_email_id)
+            .order_by(Email.id)
+        ).all()
+        for message_id, would_forward, state in rows:
+            if would_forward or state in ("SENT", "SENDING"):
+                return message_id
+        return None
 
     def add_attachment(self, email: Email, **fields) -> Attachment:
         a = self.get_attachment(email, fields["attachment_key"])

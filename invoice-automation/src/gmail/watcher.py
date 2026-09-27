@@ -62,6 +62,9 @@ class Watcher:
     def backfill(self, days: int) -> dict[str, str]:
         if days <= 0:
             return {}
+        # Pin the live-monitoring start BEFORE listing, so mail arriving during a
+        # long backfill is picked up by polling (overlap is harmless: idempotent).
+        self.monitor_start_epoch()
         with self._lock:
             since = datetime.now(UTC) - timedelta(days=days)
             ids = self.gmail.list_message_ids(f"after:{int(since.timestamp())} {BASE_QUERY}",

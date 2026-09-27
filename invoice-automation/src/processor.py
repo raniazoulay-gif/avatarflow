@@ -50,7 +50,7 @@ class AttachmentOutcome:
     rules: dict
     error: str | None = None
     reused: bool = False
-    duplicate_of: str | None = None  # message_id of an email with identical content
+    sha256: str | None = None
 
 
 class Processor:
@@ -149,7 +149,7 @@ class Processor:
         ai = best.ai or {}
         ai_says_invoice = bool(ai.get("is_invoice", True)) if best.ai else True
         decision = decide(best.final_score, p.sender_email, s, is_backfill=is_backfill,
-                          is_invoice=ai_says_invoice)
+                          is_invoice=ai_says_invoice, has_ai=best.ai is not None)
         is_inv = best.final_score >= s.review_threshold
         reason = " | ".join(x for x in [
             decision.reason,
@@ -172,16 +172,16 @@ class Processor:
         )
         e.status = decision.status
         e.would_forward = decision.would_forward
-        if best.duplicate_of and best.duplicate_of != p.message_id and decision.would_forward:
-            dup = repo.get_email(best.duplicate_of)
-            if dup is not None and (dup.would_forward or dup.status in (
-                    EmailStatus.FORWARDED, EmailStatus.DRY_RUN_WOULD_FORWARD)):
+        if decision.would_forward:
+            shas = [o.sha256 for o in ok if o.sha256]
+            dup_id = repo.find_forwarded_duplicate(shas, e.id)
+            if dup_id is not None:
                 # Identical invoice file already (would have been) forwarded from
                 # another email - do not send it again; ask for review instead.
                 decision.status = e.status = EmailStatus.REVIEW
                 decision.labels = ["Invoice/Review"] + (["Invoice/DRY-RUN"] if dry else [])
                 decision.would_forward = e.would_forward = False
-                reason = f"Duplicate invoice content (sha256) of {best.duplicate_of} | {reason}"
+                reason = f"Duplicate invoice content (sha256) of {dup_id} | {reason}"
                 repo.set_classification(e, reason=reason[:2000])
         partial_errors = [o for o in outcomes if o.error]
         if partial_errors:
@@ -189,11 +189,14 @@ class Processor:
 
         if decision.status == EmailStatus.FORWARDED:
             result = self.forwarder.forward(e, repo, is_backfill=is_backfill)
-            if not result.forwarded:
+            if result.forwarded:
+                repo.incr_state("total_forwarded")
+            elif result.existing_state == "SENT":
+                # Sent in an earlier (interrupted) run - report the true state.
+                e.status = EmailStatus.FORWARDED
+            else:
                 e.status = EmailStatus.FORWARD_BLOCKED
                 e.error = ((e.error + "; ") if e.error else "") + result.reason
-            else:
-                repo.incr_state("total_forwarded")
 
         if decision.status not in (EmailStatus.DRY_RUN_WOULD_FORWARD, EmailStatus.FORWARDED) \
                 and (not is_inv or not ai_says_invoice):
@@ -256,11 +259,11 @@ class Processor:
 
         # Duplicate attachment: identical content already analysed -> reuse.
         prior = repo.find_processed_by_sha(sha)
-        if prior is not None and prior.classification_json and (
+        if prior is not None and (
                 existing is None or prior.id != existing.id):
             saved = json.loads(prior.classification_json)
             out = AttachmentOutcome(**{**saved, "filename": a.filename, "reused": True,
-                                       "duplicate_of": prior.email.message_id})
+                                       "sha256": sha})
             repo.add_attachment(e, **base, processed=True, extraction_method="reused",
                                 text_chars=prior.text_chars, is_invoice=prior.is_invoice,
                                 final_score=prior.final_score, rule_score=prior.rule_score,
@@ -301,13 +304,13 @@ class Processor:
         out = AttachmentOutcome(
             filename=a.filename, file_type=ext.file_type, final_score=score,
             rule_score=rules.score, ai_score=ai_score,
-            ai=ai_result.model_dump() if ai_result else None, rules=rules_dict,
+            ai=ai_result.model_dump() if ai_result else None, rules=rules_dict, sha256=sha,
         )
         saved = asdict(out)
         saved.pop("filename")
         saved.pop("reused")
         saved.pop("error")
-        saved.pop("duplicate_of")
+        saved.pop("sha256")
         repo.add_attachment(
             e, **base, processed=True, extraction_method=ext.method, text_chars=len(ext.text),
             is_invoice=score >= s.review_threshold, final_score=score, rule_score=rules.score,

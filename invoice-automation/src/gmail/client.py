@@ -43,7 +43,7 @@ class GmailClient:
         self.max_attempts = max_attempts
         self.base_delay = base_delay
 
-    def _call(self, what: str, fn):
+    def _call(self, what: str, fn, max_attempts: int | None = None):
         def wrapped():
             try:
                 return fn().execute(num_retries=0)
@@ -52,8 +52,8 @@ class GmailClient:
                     raise NonRetryableError(f"{what}: {exc}") from exc
                 raise
 
-        return retry_call(wrapped, max_attempts=self.max_attempts, base_delay=self.base_delay,
-                          what=f"Gmail {what}")
+        return retry_call(wrapped, max_attempts=max_attempts or self.max_attempts,
+                          base_delay=self.base_delay, what=f"Gmail {what}")
 
     def get_profile(self) -> dict[str, Any]:
         return self._call("getProfile", lambda: self.svc.users().getProfile(userId="me"))
@@ -102,8 +102,10 @@ class GmailClient:
         body: dict[str, Any] = {"raw": base64.urlsafe_b64encode(raw).decode()}
         if thread_id:
             body["threadId"] = thread_id
+        # Single attempt only: sending is not idempotent. Retrying after an
+        # ambiguous failure (timeout, 5xx) could deliver the message twice.
         return self._call("messages.send", lambda: self.svc.users().messages().send(
-            userId="me", body=body))
+            userId="me", body=body), max_attempts=1)
 
     def watch(self, topic: str) -> dict[str, Any]:
         body = {"topicName": topic, "labelIds": ["INBOX"], "labelFilterBehavior": "include"}

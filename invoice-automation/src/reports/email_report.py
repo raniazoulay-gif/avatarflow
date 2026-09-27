@@ -98,6 +98,12 @@ def generate_daily_report(settings: Settings, db: Database, gmail: GmailAPI | No
             result["send_status"] = "NOT SENT - Gmail NOT CONFIGURED"
         elif not settings.source_gmail_account:
             result["send_status"] = "NOT SENT - SOURCE_GMAIL_ACCOUNT NOT CONFIGURED"
+        elif (gmail.get_profile().get("emailAddress", "").lower()
+              != settings.source_gmail_account.lower()):
+            # The report contains supplier/invoice metadata: only ever send it to
+            # the authenticated mailbox owner.
+            result["send_status"] = ("NOT SENT - SOURCE_GMAIL_ACCOUNT does not match the "
+                                     "authenticated Gmail account")
         else:
             raw = build_report_message(data, path, settings, progress)
             gmail.send_raw(raw)

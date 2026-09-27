@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import openpyxl
 import pytest
@@ -133,8 +133,11 @@ def test_daily_report_dry_run(tmp_path):
                                       make_text_pdf(NON_INVOICE_LINES))])
     h.gmail.add_message("m3", subject="Invoice for August", attachments=[])
     h.processor.process_many(["m1", "m2", "m3"])
-    today = datetime.now(s.tz).date()
-    res = generate_daily_report(s, h.db, h.gmail, today, send=True)
+    now = datetime.now(s.tz)
+    # The report for day D covers (D-1 18:00, D 18:00]; pick the one containing "now".
+    d = now.date() if (now.hour, now.minute) < (s.report_hour, s.report_minute) \
+        else now.date() + timedelta(days=1)
+    res = generate_daily_report(s, h.db, h.gmail, d, send=True)
     assert res["sent"] is True
     summary = res["summary"]
     assert summary["Total Emails"] == 3

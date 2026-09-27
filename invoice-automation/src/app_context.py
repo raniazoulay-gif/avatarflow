@@ -49,8 +49,11 @@ class AppContext:
         )
         self.labels = LabelManager(gmail) if gmail else None
         self.forwarder = Forwarder(settings, gmail, self.labels) if gmail else None
+        from .reports.notifications import Notifier
+
+        self.notifier = Notifier(settings, gmail) if gmail else None
         self.processor = (Processor(settings, self.db, gmail, self.extractor, self.ai,
-                                    self.forwarder, self.labels)
+                                    self.forwarder, self.labels, self.notifier)
                           if gmail and self.forwarder else None)
         self.watcher = Watcher(settings, self.db, gmail, self.processor) if gmail else None
 

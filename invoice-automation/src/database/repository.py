@@ -60,6 +60,31 @@ class Database:
 
     def create_all(self) -> None:
         Base.metadata.create_all(self.engine)
+        self._add_missing_columns()
+
+    def _add_missing_columns(self) -> None:
+        """Minimal forward-only migration: add new nullable columns to tables
+        created by an older version (create_all never alters existing tables)."""
+        from sqlalchemy import inspect
+
+        for table in Base.metadata.sorted_tables:
+            insp = inspect(self.engine)
+            if not insp.has_table(table.name):
+                continue
+            existing = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in existing or not col.nullable:
+                    continue
+                ddl_type = col.type.compile(dialect=self.engine.dialect)
+                try:
+                    with self.engine.begin() as conn:
+                        conn.execute(text(
+                            f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {ddl_type}'))
+                except Exception:
+                    # Another instance (overlapping deploy) may have added it first.
+                    cols = {c["name"] for c in inspect(self.engine).get_columns(table.name)}
+                    if col.name not in cols:
+                        raise
 
     def ping(self) -> bool:
         with self.engine.connect() as conn:

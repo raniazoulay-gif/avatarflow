@@ -240,7 +240,8 @@ PRODUCTION = dict(dry_run=False, auto_forward_enabled=True, production_confirmat
 
 class Harness:
     def __init__(self, settings: Settings, backend: FakeBackend | None = None,
-                 ocr_pdf_fn=None, reports_dir: str | None = None) -> None:
+                 ocr_pdf_fn=None, reports_dir: str | None = None,
+                 notify: bool = False) -> None:
         self.settings = settings
         self.gmail = FakeGmail()
         self.db = Database(settings.database_url)
@@ -253,8 +254,13 @@ class Harness:
         self.extractor = DocumentExtractor(**kwargs)
         self.labels = LabelManager(self.gmail)
         self.forwarder = Forwarder(settings, self.gmail, self.labels)
+        from src.reports.notifications import Notifier
+
+        # Notifications are off in the harness unless a test opts in, so the
+        # "no send in DRY RUN" assertions keep meaning "no forward".
+        self.notifier = Notifier(settings, self.gmail) if notify else None
         self.processor = Processor(settings, self.db, self.gmail, self.extractor, self.ai,
-                                   self.forwarder, self.labels)
+                                   self.forwarder, self.labels, self.notifier)
 
     def email(self, mid: str):
         with self.db.repo() as repo:

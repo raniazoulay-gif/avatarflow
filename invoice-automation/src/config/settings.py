@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     reports_dir: str = "reports_out"
     store_document_text: bool = False
 
+    # Per-invoice notification email to SOURCE_GMAIL_ACCOUNT: off | dry_run | always
+    notify_detections: str = "dry_run"
+
     # Server
     public_contact_email: str = ""  # shown on /privacy (defaults to SOURCE_GMAIL_ACCOUNT)
     host: str = "0.0.0.0"
@@ -95,6 +98,14 @@ class Settings(BaseSettings):
     def _strip(cls, v):
         # Tolerate stray whitespace/newlines from copy-paste into hosting dashboards.
         return v.strip() if isinstance(v, str) else v
+
+    @field_validator("notify_detections")
+    @classmethod
+    def _valid_notify(cls, v: str) -> str:
+        v = (v or "").strip().lower()
+        if v not in ("off", "dry_run", "always"):
+            raise ValueError("NOTIFY_DETECTIONS must be off, dry_run or always")
+        return v
 
     @field_validator("timezone")
     @classmethod

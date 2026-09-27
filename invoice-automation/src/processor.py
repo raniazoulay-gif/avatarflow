@@ -63,6 +63,7 @@ class Processor:
         ai: AIClassifier,
         forwarder: Forwarder,
         labels: LabelManager | None,
+        notifier=None,
     ) -> None:
         self.settings = settings
         self.db = db
@@ -71,6 +72,7 @@ class Processor:
         self.ai = ai
         self.forwarder = forwarder
         self.labels = labels
+        self.notifier = notifier
 
     # ------------------------------------------------------------------
     def process_many(self, message_ids: list[str], *, is_backfill: bool = False) -> dict[str, str]:
@@ -207,6 +209,8 @@ class Processor:
             repo.incr_state("total_invoices")
         if decision.would_forward:
             repo.incr_state("total_would_forward")
+        if self.notifier is not None:
+            self.notifier.maybe_notify(e)
         return self._finish(repo, e, labels=decision.labels)
 
     def _finish(self, repo: Repository, e: Email, labels: list[str], success: bool = True) -> str:

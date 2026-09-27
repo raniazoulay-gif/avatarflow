@@ -87,6 +87,7 @@ class Email(Base):
     would_forward: Mapped[bool] = mapped_column(Boolean, default=False)
     possible_invoice: Mapped[bool] = mapped_column(Boolean, default=False)
     possible_invoice_reason: Mapped[str | None] = mapped_column(Text)
+    notified_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     rule_score: Mapped[float | None] = mapped_column(Float)
     ai_score: Mapped[float | None] = mapped_column(Float)
     final_score: Mapped[float | None] = mapped_column(Float)

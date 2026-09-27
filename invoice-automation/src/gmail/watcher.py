@@ -20,7 +20,8 @@ from .client import GmailAPI
 log = logging.getLogger(__name__)
 
 BASE_QUERY = "-in:sent -in:drafts -in:spam -in:trash -in:chats " \
-             "-subject:\"Daily Invoice Automation Report\""
+             "-subject:\"Daily Invoice Automation Report\" " \
+             "-subject:\"[Invoice Automation]\""
 
 
 class Watcher:

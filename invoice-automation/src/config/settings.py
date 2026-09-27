@@ -89,6 +89,13 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
+    @field_validator("gmail_client_id", "gmail_client_secret", "gmail_refresh_token",
+                     "source_gmail_account", "target_gmail_account", "ai_api_key", mode="before")
+    @classmethod
+    def _strip(cls, v):
+        # Tolerate stray whitespace/newlines from copy-paste into hosting dashboards.
+        return v.strip() if isinstance(v, str) else v
+
     @field_validator("timezone")
     @classmethod
     def _valid_tz(cls, v: str) -> str:

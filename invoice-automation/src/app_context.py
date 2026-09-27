@@ -35,7 +35,9 @@ class AppContext:
                                     max_attempts=settings.retry_max_attempts,
                                     base_delay=settings.retry_base_delay_seconds)
             except Exception as exc:
-                self.gmail_error = f"{type(exc).__name__}"
+                from .gmail.auth import describe_auth_error
+
+                self.gmail_error = describe_auth_error(exc)
                 log.error("Gmail connection failed: %s", self.gmail_error)
         self.gmail = gmail
         self.ai = ai or build_ai_classifier(settings)

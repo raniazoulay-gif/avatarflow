@@ -251,3 +251,55 @@ def test_public_pages_for_google_consent_screen():
         assert "owner@example.com" in r.text
     # Public pages never leak system state.
     assert "total_processed" not in client.get("/").text
+
+
+def test_gmail_auth_error_is_explained_without_secrets():
+    from google.auth.exceptions import RefreshError
+
+    from src.gmail.auth import describe_auth_error
+
+    exc = RefreshError("invalid_grant: Token has been expired or revoked.",
+                       {"error": "invalid_grant",
+                        "error_description": "Token has been expired or revoked."})
+    msg = describe_auth_error(exc)
+    assert "invalid_grant" in msg and "OAuth Playground" in msg
+    assert describe_auth_error(RefreshError("invalid_client: Unauthorized")).startswith(
+        "RefreshError: invalid_client")
+    assert describe_auth_error(ConnectionError("x")) == "ConnectionError"
+
+
+def test_gmail_credential_paste_mistakes_detected():
+    from src.gmail.auth import credential_format_problems
+
+    s = make_settings(gmail_client_id="<apps.googleusercontent.com>",
+                      gmail_client_secret="GOCSPX-abc", gmail_refresh_token="<1//04abc>")
+    problems = " ".join(credential_format_problems(s))
+    assert "GMAIL_CLIENT_ID contains" in problems
+    assert "GMAIL_REFRESH_TOKEN should start with 1//" in problems
+    assert "04abc" not in problems  # values are never echoed
+    ok = make_settings(gmail_client_id=" 1-a.apps.googleusercontent.com\n",
+                       gmail_client_secret="GOCSPX-abc", gmail_refresh_token="1//04abc ")
+    assert credential_format_problems(ok) == []  # whitespace is stripped by settings
+
+
+def test_system_check_reports_gmail_reason():
+    from google.auth.exceptions import RefreshError
+
+    class Broken:
+        def get_profile(self):
+            raise RefreshError("invalid_grant: Token has been expired or revoked.")
+
+    s = make_settings(gmail_client_id="1-a.apps.googleusercontent.com",
+                      gmail_client_secret="GOCSPX-x", gmail_refresh_token="1//x")
+    items = {i.name: i for i in run_system_check(s, gmail_client=Broken())}
+    assert items["Gmail"].status == "ERROR"
+    assert "invalid_grant" in items["Gmail"].detail
+
+
+def test_paste_mistake_reason_reaches_system_check():
+    s = make_settings(gmail_client_id="1-a.apps.googleusercontent.com",
+                      gmail_client_secret="GOCSPX-x", gmail_refresh_token="<1//secretvalue>")
+    items = {i.name: i for i in run_system_check(s)}  # real build_credentials path
+    assert items["Gmail"].status == "ERROR"
+    assert "GMAIL_REFRESH_TOKEN" in items["Gmail"].detail
+    assert "secretvalue" not in items["Gmail"].detail

@@ -49,8 +49,9 @@ def run_system_check(settings: Settings, *, verify_remote: bool = True,
             else:
                 items.append(CheckItem("Gmail", "CONNECTED", detail))
         except Exception as exc:
-            items.append(CheckItem("Gmail", "ERROR", f"{type(exc).__name__} (credentials rejected "
-                                                     f"or network error)"))
+            from .gmail.auth import describe_auth_error
+
+            items.append(CheckItem("Gmail", "ERROR", describe_auth_error(exc)))
 
     # Source account
     if not EMAIL_RE.match(settings.source_gmail_account or ""):

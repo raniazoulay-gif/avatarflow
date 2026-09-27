@@ -1,14 +1,34 @@
-"""HTTP endpoints: /health and /gmail/push (Pub/Sub push target)."""
+"""HTTP endpoints: /health, /gmail/push (Pub/Sub push target) and the public
+home / privacy / terms pages required by the Google OAuth consent screen."""
 
 from __future__ import annotations
 
 import hmac
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse
+
+from .public_pages import home_page, privacy_page, terms_page
 
 
 def create_app(ctx) -> FastAPI:
     app = FastAPI(title="Gmail Invoice Automation", docs_url=None, redoc_url=None)
+
+    def _contact() -> str:
+        s = ctx.settings
+        return s.public_contact_email or s.source_gmail_account
+
+    @app.get("/", response_class=HTMLResponse)
+    def home() -> str:
+        return home_page(_contact())
+
+    @app.get("/privacy", response_class=HTMLResponse)
+    def privacy() -> str:
+        return privacy_page(_contact())
+
+    @app.get("/terms", response_class=HTMLResponse)
+    def terms() -> str:
+        return terms_page(_contact())
 
     @app.get("/health")
     def health() -> dict:

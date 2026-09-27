@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     store_document_text: bool = False
 
     # Server
+    public_contact_email: str = ""  # shown on /privacy (defaults to SOURCE_GMAIL_ACCOUNT)
     host: str = "0.0.0.0"
     port: int = Field(default=8080)
 

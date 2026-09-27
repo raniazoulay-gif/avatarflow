@@ -233,3 +233,21 @@ def test_scheduler_uses_explicit_timezone():
     job = sched.get_job("daily_report")
     assert str(job.trigger.timezone) == "Asia/Jerusalem"
     assert "hour='18'" in str(job.trigger) and "minute='0'" in str(job.trigger)
+
+
+def test_public_pages_for_google_consent_screen():
+    from fastapi.testclient import TestClient
+
+    from src.api.server import create_app
+    from src.app_context import AppContext
+
+    s = make_settings(public_contact_email="owner@example.com")
+    client = TestClient(create_app(AppContext(s, connect_gmail=False)))
+    for path, marker in (("/", "Invoice Automation"), ("/privacy", "Limited Use"),
+                         ("/terms", "Terms of Service")):
+        r = client.get(path)
+        assert r.status_code == 200 and "text/html" in r.headers["content-type"]
+        assert marker in r.text
+        assert "owner@example.com" in r.text
+    # Public pages never leak system state.
+    assert "total_processed" not in client.get("/").text

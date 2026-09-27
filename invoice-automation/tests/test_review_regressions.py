@@ -13,8 +13,7 @@ from src.gmail.watcher import Watcher
 from src.reports.data import build_report, report_window
 from src.reports.email_report import generate_daily_report
 
-from .conftest import INVOICE_LINES, PRODUCTION, FakeBackend, Harness, make_settings, \
-    make_text_pdf
+from .conftest import INVOICE_LINES, PRODUCTION, FakeBackend, Harness, make_settings, make_text_pdf
 
 
 class FailFirstBackend(FakeBackend):
@@ -170,3 +169,15 @@ def test_backfill_pins_monitor_start_before_listing():
     h.gmail.list_message_ids = spy
     w.backfill(7)
     assert seen["start"] is not None
+
+
+@pytest.mark.parametrize("url,expected", [
+    ("postgresql://u:p@host:5432/db", "postgresql+psycopg2://u:p@host:5432/db"),
+    ("postgres://u:p@host:5432/db", "postgresql+psycopg2://u:p@host:5432/db"),
+    ("postgresql+psycopg2://u:p@h/db", "postgresql+psycopg2://u:p@h/db"),
+    ("sqlite:///data/x.db", "sqlite:///data/x.db"),
+])
+def test_railway_postgres_url_uses_installed_driver(url, expected):
+    from src.database.repository import normalize_database_url
+
+    assert normalize_database_url(url) == expected

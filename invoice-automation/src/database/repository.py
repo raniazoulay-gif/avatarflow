@@ -25,8 +25,21 @@ from .models import (
 )
 
 
+def normalize_database_url(url: str) -> str:
+    """Pin the PostgreSQL driver to psycopg2 (what requirements.txt installs).
+
+    Hosting providers such as Railway hand out plain postgresql:// or legacy
+    postgres:// URLs; SQLAlchemy 2.1 maps those to psycopg (v3) by default.
+    """
+    for prefix in ("postgresql://", "postgres://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg2://" + url[len(prefix):]
+    return url
+
+
 class Database:
     def __init__(self, url: str) -> None:
+        url = normalize_database_url(url)
         if url.startswith("sqlite:///") and not url.startswith("sqlite:///:memory:"):
             path = url.replace("sqlite:///", "", 1)
             d = os.path.dirname(path)
@@ -39,6 +52,9 @@ class Database:
                 from sqlalchemy.pool import StaticPool
 
                 kwargs["poolclass"] = StaticPool
+        else:
+            # Drop connections the server closed while idle.
+            kwargs["pool_pre_ping"] = True
         self.engine: Engine = create_engine(url, **kwargs)
         self._sessionmaker = sessionmaker(bind=self.engine, expire_on_commit=False)
 

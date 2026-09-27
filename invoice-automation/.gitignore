@@ -1,0 +1,9 @@
+.env
+data/
+reports_out/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+client_secret*.json

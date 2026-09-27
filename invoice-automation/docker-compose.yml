@@ -1,0 +1,26 @@
+services:
+  invoice-automation:
+    build: .
+    env_file: .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./reports_out:/app/reports_out
+    restart: unless-stopped
+
+  # Optional PostgreSQL. To use it set in .env:
+  # DATABASE_URL=postgresql+psycopg2://invoices:invoices@postgres:5432/invoices
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: invoices
+      POSTGRES_PASSWORD: invoices
+      POSTGRES_DB: invoices
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:

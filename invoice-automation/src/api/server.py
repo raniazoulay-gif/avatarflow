@@ -43,7 +43,7 @@ def create_app(ctx) -> FastAPI:
         try:
             with ctx.db.repo() as repo:
                 state = repo.all_state()
-                e = repo.last_processed_email()
+                e = repo.last_processed_email(legacy_only=True)
                 if e is not None:
                     last_email = {"message_id": e.message_id, "status": e.status,
                                   "processed_at": e.processed_at.isoformat() if e.processed_at
@@ -80,6 +80,9 @@ def create_app(ctx) -> FastAPI:
             raise HTTPException(status_code=403, detail="forbidden")
         if ctx.watcher is None:
             raise HTTPException(status_code=503, detail="Gmail not configured")
+        moved = getattr(ctx, "legacy_account_moved", None)
+        if moved is not None and moved():
+            return {"ok": True, "skipped": "account managed by the web app"}
         # Payload only carries emailAddress/historyId; we simply run an
         # idempotent poll cycle, which picks up anything new.
         ctx.watcher.on_push_notification()

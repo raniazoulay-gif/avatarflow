@@ -67,6 +67,13 @@ class SaasEngine:
         self.vault = vault
         self._rt: dict[int, Runtime] = {}
         self._lock = threading.Lock()
+        # The Gmail/Drive HTTP clients are not thread-safe: one user at a time per mailbox.
+        self._mb_locks: dict[int, threading.RLock] = {}
+        self._scanning: set[int] = set()
+
+    def mailbox_lock(self, mailbox_id: int) -> threading.RLock:
+        with self._lock:
+            return self._mb_locks.setdefault(mailbox_id, threading.RLock())
 
     # ------------------------------------------------------------- oauth apps
     def shared_client(self) -> OAuthClient | None:
@@ -166,8 +173,10 @@ class SaasEngine:
 
     def poll_mailbox(self, mb: Mailbox, org: Organization, *, backfill_days: int = 0) -> dict:
         try:
-            rt = self.runtime(mb, org)
-            res = rt.watcher.backfill(backfill_days) if backfill_days else rt.watcher.poll_once()
+            with self.mailbox_lock(mb.id):
+                rt = self.runtime(mb, org)
+                res = (rt.watcher.backfill(backfill_days) if backfill_days
+                       else rt.watcher.poll_once())
             self._mark(mb.id, "active", None)
             return res
         except Exception as exc:
@@ -195,13 +204,32 @@ class SaasEngine:
             n += 1
         return n
 
+    def scan_org(self, org_id: int) -> bool:
+        """Manual "scan now": at most one running scan per organization."""
+        with self._lock:
+            if org_id in self._scanning:
+                return False
+            self._scanning.add(org_id)
+
+        def run():
+            try:
+                self.poll_all(org_id)
+            except Exception as exc:
+                log.error("Manual scan failed: %s", type(exc).__name__)
+            finally:
+                with self._lock:
+                    self._scanning.discard(org_id)
+        threading.Thread(target=run, daemon=True).start()
+        return True
+
     def start_initial_scan(self, mailbox_id: int, days: int = 7) -> None:
         """After connecting: look back a few days (never forwards - backfill)."""
         def run():
             for mb, org in self.active_mailboxes():
                 if mb.id == mailbox_id:
                     try:
-                        self.runtime(mb, org).processor.labels.ensure_labels()
+                        with self.mailbox_lock(mb.id):
+                            self.runtime(mb, org).processor.labels.ensure_labels()
                     except Exception as exc:
                         log.warning("Label setup failed for mailbox %s: %s", mailbox_id,
                                     type(exc).__name__)
@@ -210,4 +238,7 @@ class SaasEngine:
         threading.Thread(target=run, daemon=True).start()
 
     def connected_emails(self) -> set[str]:
-        return {m.email.lower() for m, _ in self.active_mailboxes()}
+        """Every mailbox connected in the web app, whatever its status: once the
+        env account is connected there, the org's settings govern it for good."""
+        with self.db.repo() as repo:
+            return {e.lower() for e in repo.s.scalars(select(Mailbox.email))}

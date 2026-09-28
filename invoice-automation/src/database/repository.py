@@ -87,6 +87,11 @@ class Database:
                     cols = {c["name"] for c in inspect(self.engine).get_columns(table.name)}
                     if col.name not in cols:
                         raise
+                if col.index:
+                    with self.engine.begin() as conn:
+                        conn.execute(text(
+                            f'CREATE INDEX IF NOT EXISTS "ix_{table.name}_{col.name}" '
+                            f'ON "{table.name}" ("{col.name}")'))
 
     def ping(self) -> bool:
         with self.engine.connect() as conn:
@@ -151,7 +156,8 @@ class Repository:
             .limit(1)
         )
 
-    def find_forwarded_duplicate(self, shas: list[str], exclude_email_id: int) -> str | None:
+    def find_forwarded_duplicate(self, shas: list[str], exclude_email_id: int,
+                                 org_id: int | None = None) -> str | None:
         """message_id of another email carrying one of these files that was (or
         would have been) forwarded - independent of any cached classification."""
         if not shas:
@@ -160,7 +166,8 @@ class Repository:
             select(Email.message_id, Email.would_forward, Forward.state)
             .join(Attachment, Attachment.email_id == Email.id)
             .outerjoin(Forward, Forward.email_id == Email.id)
-            .where(Attachment.sha256.in_(shas), Email.id != exclude_email_id)
+            .where(Attachment.sha256.in_(shas), Email.id != exclude_email_id,
+                   Email.org_id == org_id if org_id is not None else Email.org_id.is_(None))
             .order_by(Email.id)
         ).all()
         for message_id, would_forward, state in rows:
@@ -250,22 +257,31 @@ class Repository:
         return {st.key: st.value for st in self.s.scalars(select(SystemState))}
 
     # ---------------- reports ----------------
-    def emails_processed_between(self, start: datetime, end: datetime) -> list[Email]:
+    def emails_processed_between(self, start: datetime, end: datetime,
+                                 source_email: str | None = None) -> list[Email]:
+        """Emails of the original (env-configured) account only - never a
+        customer's mailbox, so the owner's daily report can't leak tenant data."""
+        from sqlalchemy import func, or_
+
+        from ..saas.models import Mailbox
+
+        own = select(Mailbox.id).where(func.lower(Mailbox.email) == (source_email or "").lower())
         return list(
             self.s.scalars(
                 select(Email)
                 .options(selectinload(Email.attachments), selectinload(Email.classification),
                          selectinload(Email.forward))
-                .where(Email.processed_at >= start, Email.processed_at < end)
+                .where(Email.processed_at >= start, Email.processed_at < end,
+                       or_(Email.org_id.is_(None), Email.mailbox_id.in_(own)))
                 .order_by(Email.processed_at)
             )
         )
 
-    def last_processed_email(self) -> Email | None:
-        return self.s.scalar(
-            select(Email).where(Email.processed_at.is_not(None))
-            .order_by(Email.processed_at.desc()).limit(1)
-        )
+    def last_processed_email(self, *, legacy_only: bool = False) -> Email | None:
+        q = select(Email).where(Email.processed_at.is_not(None))
+        if legacy_only:
+            q = q.where(Email.org_id.is_(None))
+        return self.s.scalar(q.order_by(Email.processed_at.desc()).limit(1))
 
 
 def classification_to_json(d: dict) -> str:

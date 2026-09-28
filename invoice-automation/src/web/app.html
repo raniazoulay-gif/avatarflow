@@ -231,7 +231,7 @@ function banners(){
   let h='';const m=S.me;const p=new URLSearchParams(location.search);
   if(p.get('connected')){toast('התיבה חוברה! המערכת סורקת עכשיו את 7 הימים האחרונים');history.replaceState(null,'','/app#'+S.view);}
   const ce=p.get('connect_error');
-  if(ce){const map={no_google_app:'לעסק עדיין לא הוגדר חיבור ל-Google. מנהל העסק צריך להשלים את ההגדרה במסך "הגדרות".',mailbox_in_other_org:'התיבה הזו כבר מחוברת לעסק אחר.',no_refresh_token:'Google לא החזירה הרשאה קבועה. נסו שוב.',access_denied:'החיבור בוטל.',missing_gmail_permission:'צריך לסמן את ההרשאה לקרוא ולנהל מיילים. נסו שוב וסמנו את כל התיבות.'};
+  if(ce){const map={no_google_app:'לעסק עדיין לא הוגדר חיבור ל-Google. מנהל העסק צריך להשלים את ההגדרה במסך "הגדרות".',mailbox_in_other_org:'התיבה הזו כבר מחוברת לעסק אחר.',no_refresh_token:'Google לא החזירה הרשאה קבועה. נסו שוב.',access_denied:'החיבור בוטל.',expired:'תוקף החיבור פג או שהוא הושלם בדפדפן אחר. התחילו שוב מכאן.',user:'החיבור התחיל ממשתמש אחר. היכנסו עם המשתמש שלכם ונסו שוב.',missing_gmail_permission:'צריך לסמן את ההרשאה לקרוא ולנהל מיילים. נסו שוב וסמנו את כל התיבות.'};
     h+=`<div class="banner bad">${i('alert')}${esc(map[ce]||('החיבור נכשל: '+ce))}</div>`;history.replaceState(null,'','/app#'+S.view);}
   if(m.org){
     const mine=m.mailboxes;
@@ -372,7 +372,7 @@ document.addEventListener('click',async e=>{
   const mo=t.closest('[data-mo]');if(mo){S.month=mo.dataset.mo;render();return;}
   const cp=t.closest('[data-copy]');if(cp){copyText(cp.dataset.copy);return;}
   const tg=t.closest('[data-tg]');if(tg){const v=tg.getAttribute('aria-checked')!=='true';tg.setAttribute('aria-checked',v);try{await api('/api/settings',{method:'PUT',json:{[tg.dataset.tg]:v}});toast('נשמר')}catch(x){toast(x.message)}return;}
-  if(t.closest('#scan')){try{await api('/api/scan',{json:{}});toast('הסריקה התחילה. רעננו בעוד דקה')}catch(x){toast(x.message)}return;}
+  if(t.closest('#scan')){try{const sr=await api('/api/scan',{json:{}});toast(sr.started?'הסריקה התחילה. רעננו בעוד דקה':'כבר רצה סריקה. רעננו בעוד דקה')}catch(x){toast(x.message)}return;}
   if(t.closest('#xls')){window.location='/api/reports/excel';return;}
   const de=t.closest('[data-deact]');if(de){if(de.dataset.sure){try{await api(`/api/team/${de.dataset.deact}/active`,{json:{active:false}});toast('העובד הושבת');render()}catch(x){toast(x.message)}}else{de.dataset.sure=1;de.textContent='לחצו שוב לאישור';}return;}
   const ca=t.closest('[data-cancel]');if(ca){try{await api(`/api/team/invites/${ca.dataset.cancel}/cancel`,{json:{}});render()}catch(x){toast(x.message)}return;}

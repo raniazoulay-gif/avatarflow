@@ -13,7 +13,7 @@ from src.app_context import AppContext
 from src.database.models import Classification, Email, EmailStatus
 from src.gmail.forwarder import SafetyGuard
 from src.saas import api as saas_api
-from src.saas.bootstrap import ensure_platform_admin
+from src.saas.bootstrap import create_admin_link, ensure_platform_admin
 from src.saas.engine import org_settings
 from src.saas.google_oauth import TokenResult
 from src.saas.models import Invite, Mailbox, Organization, User
@@ -139,11 +139,9 @@ def app():
 
 
 def _admin_client(ctx, app) -> TestClient:
-    assert ensure_platform_admin(ctx.settings, ctx.db, None) == "setup link logged"
-    tok, th = new_link_token()
-    with ctx.db.repo() as repo:
-        inv = repo.s.scalar(select(Invite).where(Invite.kind == "admin"))
-        inv.token_hash = th
+    # without a Gmail to email it from, the link is never logged - the CLI prints it
+    assert ensure_platform_admin(ctx.settings, ctx.db, None) == "run admin-link"
+    tok = create_admin_link(ctx.settings, ctx.db).split("t=")[1]
     c = web(app)
     r = c.post("/api/setup", json={"token": tok, "name": "Ran", "password": "secret123"},
                headers=H)
@@ -318,7 +316,10 @@ def test_oauth_connect_flow(app, monkeypatch):
                                                              "gmail.modify drive.file"))
     started = []
     monkeypatch.setattr(ctx.saas, "start_initial_scan", lambda mid, days=7: started.append(mid))
-    cb = web(a).get(f"/oauth/google/callback?state={state}&code=abc", follow_redirects=False)
+    # the consent link handed to another browser is useless (no nonce / other session)
+    stolen = web(a).get(f"/oauth/google/callback?state={state}&code=abc", follow_redirects=False)
+    assert "connect_error=expired" in stolen.headers["location"]
+    cb = mgr.get(f"/oauth/google/callback?state={state}&code=abc", follow_redirects=False)
     assert cb.status_code == 303 and "connected=1" in cb.headers["location"]
     with ctx.db.repo() as repo:
         mb = repo.s.scalar(select(Mailbox))
@@ -333,7 +334,7 @@ def test_oauth_connect_flow(app, monkeypatch):
     other = _signup(ctx, a, admin, org_name="Other", email="boss@other.co.il")
     r2 = other.get("/oauth/google/start", follow_redirects=False)
     st2 = unquote(r2.headers["location"].split("state=")[1].split("&")[0])
-    cb2 = web(a).get(f"/oauth/google/callback?state={st2}&code=abc", follow_redirects=False)
+    cb2 = other.get(f"/oauth/google/callback?state={st2}&code=abc", follow_redirects=False)
     assert "mailbox_in_other_org" in cb2.headers["location"]
 
 
@@ -363,3 +364,63 @@ def test_invite_token_expiry(app):
         repo.s.add(Invite(token_hash=th, kind="org", expires_at=datetime.fromtimestamp(
             time.time() - 10, UTC)))
     assert web(a).get(f"/api/invite/{tok}").status_code == 404
+
+
+def test_hardening_rules(app, monkeypatch):
+    ctx, a = app
+    admin = _admin_client(ctx, a)
+    mgr = _signup(ctx, a, admin)
+    with ctx.db.repo() as repo:
+        o = repo.s.scalar(select(Organization).where(Organization.name == "Acme"))
+        o.production_enabled = True
+        oid = o.id
+    # changing the accountant address switches production off until re-approved
+    assert mgr.put("/api/settings", json={"accountant_email": "evil@x.com"},
+                   headers=H).status_code == 200
+    with ctx.db.repo() as repo:
+        assert repo.s.get(Organization, oid).production_enabled is False
+    # the platform admin (joined as a member) cannot be deactivated by a manager
+    with ctx.db.repo() as repo:
+        adm = repo.s.scalar(select(User).where(User.is_platform_admin.is_(True)))
+        adm.org_id = oid
+        aid = adm.id
+    assert mgr.post(f"/api/team/{aid}/active", json={"active": False},
+                    headers=H).status_code == 403
+    # logout kills the token itself, not only the browser copy
+    cookie = mgr.cookies.get("tr_session")
+    assert mgr.post("/api/auth/logout", headers=H).status_code == 200
+    replay = web(a)
+    replay.cookies.set("tr_session", cookie)
+    assert replay.get("/api/me").status_code == 401
+    # Excel formulas from email content are neutralised
+    assert saas_api.xl_text("=HYPERLINK(1)") == "'=HYPERLINK(1)"
+    assert saas_api.xl_text("Acme") == "Acme" and saas_api.xl_text(5) == 5
+
+
+def test_invite_link_single_use(app):
+    ctx, a = app
+    admin = _admin_client(ctx, a)
+    link = admin.post("/api/admin/signup-link", json={"note": "x"}, headers=H).json()["link"]
+    tok = link.split("t=")[1]
+    body = {"token": tok, "org_name": "A", "name": "B", "email": "b@a.co.il",
+            "password": "boss1234"}
+    assert web(a).post("/api/signup", json=body, headers=H).status_code == 200
+    body["email"] = "c@a.co.il"
+    assert web(a).post("/api/signup", json=body, headers=H).status_code == 404
+
+
+def test_client_ip_uses_proxy_hop():
+    from starlette.requests import Request as SReq
+
+    req = SReq({"type": "http", "headers": [(b"x-forwarded-for", b"1.1.1.1, 9.9.9.9")],
+                "client": ("10.0.0.1", 1)})
+    assert saas_api.client_ip(req) == "9.9.9.9"
+
+
+def test_legacy_fails_closed(app, monkeypatch):
+    ctx, _ = app
+
+    def boom():
+        raise RuntimeError("db down")
+    monkeypatch.setattr(ctx.saas, "connected_emails", boom)
+    assert ctx.legacy_account_moved()

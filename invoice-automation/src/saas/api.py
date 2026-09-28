@@ -10,6 +10,7 @@ Security model
 
 from __future__ import annotations
 
+import hmac
 import html
 import io
 import logging
@@ -24,7 +25,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from ..config.settings import EMAIL_RE
 from ..database.models import Email, EmailStatus
@@ -42,6 +43,7 @@ from .security import (
 
 log = logging.getLogger(__name__)
 COOKIE = "tr_session"
+NONCE_COOKIE = "tr_oauth"
 SESSION_TTL = 14 * 24 * 3600
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
@@ -62,6 +64,22 @@ class Throttle:
     def hit(self, key: str) -> None:
         with self.lock:
             self.hits[key].append(time.time())
+
+
+def client_ip(request: Request) -> str:
+    """The address the (trusted) edge proxy saw - the rightmost X-Forwarded-For hop.
+    The leftmost values are whatever the client chose to send."""
+    xff = [p.strip() for p in request.headers.get("x-forwarded-for", "").split(",") if p.strip()]
+    if xff:
+        return xff[-1]
+    return request.client.host if request.client else ""
+
+
+def xl_text(v):
+    """Excel must show attacker-controlled text as text, never run it as a formula."""
+    if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + v
+    return v
 
 
 def clean_email(v) -> str:
@@ -167,8 +185,7 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
     async def login(request: Request):
         d = await body(request)
         email = (d.get("email") or "").strip().lower()
-        ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "")
-        ip = ip.split(",")[0].strip()
+        ip = client_ip(request)
         if web.login_email.blocked(email) or web.login_ip.blocked(ip):
             raise HTTPException(429, "יותר מדי ניסיונות. נסו שוב בעוד 15 דקות")
         with web.db.repo() as repo:
@@ -187,7 +204,14 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
         return resp
 
     @r.post("/api/auth/logout", dependencies=[Depends(csrf)])
-    def logout():
+    def logout(request: Request):
+        # Invalidate the token itself, not only the browser's copy of it.
+        data = web.session_signer.verify(request.cookies.get(COOKIE))
+        if data:
+            with web.db.repo() as repo:
+                u = repo.s.get(User, int(data.get("uid", 0)))
+                if u is not None and u.session_version == data.get("ver"):
+                    u.session_version += 1
         resp = JSONResponse({"ok": True})
         resp.delete_cookie(COOKIE, path="/")
         return resp
@@ -232,6 +256,13 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
             raise HTTPException(404, "הקישור לא תקף או שכבר נוצל. בקשו קישור חדש")
         return inv
 
+    def consume_invite(repo, inv: Invite) -> None:
+        """Atomic: two parallel requests can never both use the same link."""
+        res = repo.s.execute(update(Invite).where(Invite.id == inv.id, Invite.used_at.is_(None))
+                             .values(used_at=datetime.now(UTC)))
+        if res.rowcount != 1:
+            raise HTTPException(404, "הקישור לא תקף או שכבר נוצל. בקשו קישור חדש")
+
     @r.get("/api/invite/{tok}")
     def invite_info(tok: str):
         with web.db.repo() as repo:
@@ -259,7 +290,7 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
             inv = load_invite(repo, d.get("token", ""), "admin")
             u = create_user(repo, org_id=None, email=inv.email, name=clean_text(d.get("name"), "שם"),
                             role=Role.MANAGER, password=str(d.get("password") or ""), admin=True)
-            inv.used_at = datetime.now(UTC)
+            consume_invite(repo, inv)
             repo.s.expunge(u)
         resp = JSONResponse({"ok": True})
         set_session(resp, request, u)
@@ -278,7 +309,7 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
             u = create_user(repo, org_id=org.id, email=clean_email(d.get("email")),
                             name=clean_text(d.get("name"), "שם"), role=Role.MANAGER,
                             password=str(d.get("password") or ""))
-            inv.used_at = datetime.now(UTC)
+            consume_invite(repo, inv)
             inv.org_id = org.id
             repo.s.expunge(u)
         resp = JSONResponse({"ok": True})
@@ -294,7 +325,7 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
                             name=clean_text(d.get("name") or inv.name, "שם"),
                             role=inv.role if inv.role in Role.ALL else Role.EMPLOYEE,
                             password=str(d.get("password") or ""))
-            inv.used_at = datetime.now(UTC)
+            consume_invite(repo, inv)
             repo.s.expunge(u)
         resp = JSONResponse({"ok": True})
         set_session(resp, request, u)
@@ -310,15 +341,34 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
         client = org_client if chosen == "org" else web.engine.shared_client()
         if client is None:
             return RedirectResponse("/app?connect_error=no_google_app#settings", status_code=303)
-        state = web.state_signer.sign({"uid": u.id, "org": u.org_id, "app": chosen}, 900)
-        return RedirectResponse(authorization_url(client, web.base_url(request) + CALLBACK_PATH,
+        # The state is bound to this browser (nonce cookie) and to this session's user,
+        # so a consent link cannot be handed to someone else to attach their mailbox.
+        nonce, nonce_hash = new_link_token()
+        state = web.state_signer.sign({"uid": u.id, "org": u.org_id, "app": chosen,
+                                       "n": nonce_hash}, 900)
+        resp = RedirectResponse(authorization_url(client, web.base_url(request) + CALLBACK_PATH,
                                                   state, login_hint=u.email), status_code=303)
+        resp.set_cookie(NONCE_COOKIE, nonce, max_age=900, httponly=True, samesite="lax",
+                        secure=web.secure_cookie(request), path=CALLBACK_PATH)
+        return resp
 
     @r.get(CALLBACK_PATH)
     def oauth_callback(request: Request, state: str = "", code: str = "", error: str = ""):
+        resp = _oauth_callback(request, state, code, error)
+        resp.delete_cookie(NONCE_COOKIE, path=CALLBACK_PATH)
+        return resp
+
+    def _oauth_callback(request: Request, state: str, code: str, error: str) -> Response:
         st = web.state_signer.verify(state)
-        if not st:
+        nonce = request.cookies.get(NONCE_COOKIE) or ""
+        if not st or not nonce or not hmac.compare_digest(token_hash(nonce), str(st.get("n"))):
             return RedirectResponse("/app?connect_error=expired", status_code=303)
+        try:
+            me = current_user(request)
+        except HTTPException:
+            return RedirectResponse("/login", status_code=303)
+        if me.id != st.get("uid"):
+            return RedirectResponse("/app?connect_error=user", status_code=303)
         if error or not code:
             return RedirectResponse(f"/app?connect_error={html.escape(error or 'cancelled')}",
                                     status_code=303)
@@ -373,8 +423,7 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
 
     @r.post("/api/scan", dependencies=[Depends(csrf)])
     def scan(u: User = Depends(member)):
-        threading.Thread(target=web.engine.poll_all, kwargs={"org_id": u.org_id}, daemon=True).start()
-        return {"ok": True}
+        return {"ok": True, "started": web.engine.scan_org(u.org_id)}
 
     # ------------------------------------------------------------ data
     def scope(repo, u: User) -> Q.Scope:
@@ -428,7 +477,8 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
         for mb, org in web.engine.active_mailboxes():
             if mb.id == mailbox_id:
                 try:
-                    web.engine.runtime(mb, org).processor.labels.apply(message_id, [label])
+                    with web.engine.mailbox_lock(mb.id):
+                        web.engine.runtime(mb, org).processor.labels.apply(message_id, [label])
                 except Exception as exc:
                     log.warning("Review label failed: %s", type(exc).__name__)
 
@@ -467,9 +517,10 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
         names = {"invoice": "חשבונית", "review": "לבדיקה", "not_invoice": "לא חשבונית",
                  "error": "שגיאה", "pending": "בתהליך"}
         for x in rows:
-            ws.append([(x["received_at"] or "")[:10], x["supplier"], x["invoice_number"] or "",
-                       x["total"], x["currency"] or "", names.get(x["bucket"], x["bucket"]),
-                       x["score"], x["owner"],
+            ws.append([(x["received_at"] or "")[:10], xl_text(x["supplier"]),
+                       xl_text(x["invoice_number"] or ""),
+                       x["total"], xl_text(x["currency"] or ""),
+                       names.get(x["bucket"], x["bucket"]), x["score"], xl_text(x["owner"]),
                        f"https://drive.google.com/file/d/{x['drive_file_id']}/view"
                        if x["drive_file_id"] else ""])
         buf = io.BytesIO()
@@ -521,7 +572,7 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
         for mb, org in web.engine.active_mailboxes():
             if mb.user_id == sender.id and mb.status == "active":
                 try:
-                    gmail = web.engine.runtime(mb, org).processor.gmail
+                    lock = web.engine.mailbox_lock(mb.id)
                     msg = EmailMessage()
                     msg["Subject"] = f"[Invoice Automation] הוזמנת ל-{org_name}"
                     msg["From"] = mb.email
@@ -529,7 +580,13 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
                     text = (f"שלום {name},\n\n{sender.name} הזמין/ה אותך למערכת החשבוניות של "
                             f"{org_name}.\nלהצטרפות: {link}\n\nהקישור בתוקף ל-7 ימים.")
                     msg.set_content(text)
-                    gmail.send_raw(msg.as_bytes())
+                    # A long scan may hold the mailbox; the manager can still copy the link.
+                    if not lock.acquire(timeout=15):
+                        return False
+                    try:
+                        web.engine.runtime(mb, org).processor.gmail.send_raw(msg.as_bytes())
+                    finally:
+                        lock.release()
                     return True
                 except Exception as exc:
                     log.warning("Invite email failed: %s", type(exc).__name__)
@@ -543,6 +600,8 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
             t = repo.s.get(User, uid)
             if t is None or t.org_id != u.org_id or t.id == u.id:
                 raise HTTPException(404, "not found")
+            if t.is_platform_admin:
+                raise HTTPException(403, "אי אפשר להשבית את מנהל המערכת")
             t.active = bool(d.get("active"))
             t.session_version += 1
             for mb in repo.s.scalars(select(Mailbox).where(Mailbox.user_id == t.id)):
@@ -584,7 +643,13 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
                 o.name = clean_text(d["name"], "שם העסק")
             if "accountant_email" in d:
                 acc = (d.get("accountant_email") or "").strip()
-                o.accountant_email = clean_email(acc) if acc else None
+                new_acc = clean_email(acc) if acc else None
+                if new_acc != o.accountant_email and o.production_enabled:
+                    # Forwarding was approved for the previous address only.
+                    o.production_enabled = False
+                    log.warning("Org %s changed the accountant address; production switched "
+                                "off until the platform admin approves again", o.id)
+                o.accountant_email = new_acc
             if "forward_threshold" in d:
                 t = int(d["forward_threshold"])
                 if not 80 <= t <= 99:

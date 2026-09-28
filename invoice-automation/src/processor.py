@@ -85,6 +85,11 @@ class Processor:
         # callable(repo, email_row, parsed, outcomes, review: bool) - saves files to Drive
         self.saver = saver
 
+    def _k(self, key: str) -> str:
+        """Per-tenant key for the system_state counters (legacy keys stay as is)."""
+        org = self.tenant.get("org_id")
+        return f"org{org}:{key}" if org is not None else key
+
     # ------------------------------------------------------------------
     def process_many(self, message_ids: list[str], *, is_backfill: bool = False) -> dict[str, str]:
         results: dict[str, str] = {}
@@ -152,9 +157,9 @@ class Processor:
             e.error = "; ".join(f"{o.filename}: {o.error}" for o in outcomes)[:2000]
             e.possible_invoice, e.possible_invoice_reason = possible_invoice(
                 p.subject, p.sender_name, p.sender_email, filenames, p.body_text)
-            repo.incr_state("total_errors")
-            repo.set_state("last_error", f"{p.message_id}: {e.error[:300]}")
-            repo.set_state("last_failed_processing", now_utc().isoformat())
+            repo.incr_state(self._k("total_errors"))
+            repo.set_state(self._k("last_error"), f"{p.message_id}: {e.error[:300]}")
+            repo.set_state(self._k("last_failed_processing"), now_utc().isoformat())
             return self._finish(repo, e, labels=["Invoice/Error"], success=False)
 
         best = max(ok, key=lambda o: o.final_score)
@@ -187,7 +192,8 @@ class Processor:
         e.would_forward = decision.would_forward
         if decision.would_forward:
             shas = [o.sha256 for o in ok if o.sha256]
-            dup_id = repo.find_forwarded_duplicate(shas, e.id)
+            dup_id = repo.find_forwarded_duplicate(shas, e.id,
+                                                  org_id=self.tenant.get("org_id"))
             if dup_id is not None:
                 # Identical invoice file already (would have been) forwarded from
                 # another email - do not send it again; ask for review instead.
@@ -203,7 +209,7 @@ class Processor:
         if decision.status == EmailStatus.FORWARDED:
             result = self.forwarder.forward(e, repo, is_backfill=is_backfill)
             if result.forwarded:
-                repo.incr_state("total_forwarded")
+                repo.incr_state(self._k("total_forwarded"))
             elif result.existing_state == "SENT":
                 # Sent in an earlier (interrupted) run - report the true state.
                 e.status = EmailStatus.FORWARDED
@@ -225,18 +231,18 @@ class Processor:
                 log.warning("Drive save failed for %s: %s", p.message_id, type(exc).__name__)
 
         if is_inv:
-            repo.incr_state("total_invoices")
+            repo.incr_state(self._k("total_invoices"))
         if decision.would_forward:
-            repo.incr_state("total_would_forward")
+            repo.incr_state(self._k("total_would_forward"))
         if self.notifier is not None:
             self.notifier.maybe_notify(e)
         return self._finish(repo, e, labels=decision.labels)
 
     def _finish(self, repo: Repository, e: Email, labels: list[str], success: bool = True) -> str:
         e.processed_at = now_utc()
-        repo.incr_state("total_processed")
+        repo.incr_state(self._k("total_processed"))
         if success:
-            repo.set_state("last_successful_processing", e.processed_at.isoformat())
+            repo.set_state(self._k("last_successful_processing"), e.processed_at.isoformat())
         repo.commit()
         if self.labels is not None and labels:
             try:
@@ -362,10 +368,10 @@ class Processor:
                                   subject=(parsed.subject or "")[:1000],
                                   received_at=parsed.received_at)
                 repo.upsert_email(**fields)
-                repo.incr_state("total_errors")
-                repo.incr_state("total_processed")
-                repo.set_state("last_error", f"{message_id}: {error[:300]}")
-                repo.set_state("last_failed_processing", now_utc().isoformat())
+                repo.incr_state(self._k("total_errors"))
+                repo.incr_state(self._k("total_processed"))
+                repo.set_state(self._k("last_error"), f"{message_id}: {error[:300]}")
+                repo.set_state(self._k("last_failed_processing"), now_utc().isoformat())
             if self.labels is not None:
                 try:
                     self.labels.apply(message_id, ["Invoice/Error"])

@@ -77,10 +77,12 @@ class AppContext:
         """The env-configured account was connected in the web app: the web app
         engine owns it now, so the original watcher stands down (no double work)."""
         src = (self.settings.source_gmail_account or "").lower()
-        try:
-            return bool(src) and src in self.saas.connected_emails()
-        except Exception:
+        if not src:
             return False
+        try:
+            return src in self.saas.connected_emails()
+        except Exception:
+            return True  # fail closed: never let the legacy watcher forward by mistake
 
     def safe_saas_poll(self) -> None:
         try:

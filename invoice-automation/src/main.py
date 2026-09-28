@@ -5,6 +5,7 @@
   python -m src.main process-once          # one poll cycle, then exit
   python -m src.main backfill --days 7     # scan last N days (never forwards by default)
   python -m src.main report [--date D] [--no-send]
+  python -m src.main admin-link            # print a one-time platform admin setup link
 """
 
 from __future__ import annotations
@@ -79,6 +80,20 @@ def cmd_report(s: Settings, args) -> int:
     return 0
 
 
+def cmd_admin_link(s: Settings, _args) -> int:
+    from .database.repository import Database
+    from .saas.bootstrap import create_admin_link
+
+    db = Database(s.database_url)
+    db.create_all()
+    try:
+        print(create_admin_link(s, db))
+    except ValueError as exc:
+        print(f"Not created: {exc}")
+        return 1
+    return 0
+
+
 def cmd_run(s: Settings, _args) -> int:
     import uvicorn
 
@@ -124,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("report")
     r.add_argument("--date", default=None, help="YYYY-MM-DD (default: today in TIMEZONE)")
     r.add_argument("--no-send", action="store_true", help="only write the Excel file")
+    sub.add_parser("admin-link")
     args = p.parse_args(argv)
 
     try:
@@ -134,7 +150,8 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging(s.log_level, _secrets(s))
     _banner(s)
     handlers = {"check": cmd_check, "run": cmd_run, "process-once": cmd_process_once,
-                "backfill": cmd_backfill, "report": cmd_report}
+                "backfill": cmd_backfill, "report": cmd_report,
+                "admin-link": cmd_admin_link}
     return handlers[args.cmd](s, args)
 
 

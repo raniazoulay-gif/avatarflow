@@ -90,7 +90,7 @@ def email_row(e: Email, settings: Settings) -> dict:
 
 def build_report(repo: Repository, d: date, settings: Settings) -> ReportData:
     start, end = report_window(d, settings)
-    emails = repo.emails_processed_between(start, end)
+    emails = repo.emails_processed_between(start, end, settings.source_gmail_account)
     dry = not settings.forward_switches_on
     rows = [email_row(e, settings) for e in emails]
 

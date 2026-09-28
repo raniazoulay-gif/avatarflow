@@ -57,6 +57,9 @@ class User(Base):
     # Set when a manager created the account with a temporary password.
     must_change_password: Mapped[bool | None] = mapped_column(Boolean, nullable=True,
                                                               default=False)
+    # A temporary password stops working after this time (see TEMP_PASSWORD_HOURS).
+    temp_password_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime(),
+                                                                      nullable=True)
 
 
 class Mailbox(Base):

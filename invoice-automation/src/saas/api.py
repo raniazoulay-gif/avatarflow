@@ -26,6 +26,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy import func, select, update
+from starlette.concurrency import run_in_threadpool
 
 from ..config.settings import EMAIL_RE
 from ..database.models import Email, EmailStatus
@@ -49,6 +50,8 @@ NONCE_COOKIE = "tr_oauth"
 SESSION_TTL = 14 * 24 * 3600
 CODE_TTL = 15 * 60
 CODE_MAX_ATTEMPTS = 5
+CODE_DAILY_FAILURES = 10  # wrong codes per email per 24h, across all codes
+TEMP_PASSWORD_HOURS = 72
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 
@@ -114,6 +117,8 @@ class Web:
         self.login_ip = Throttle(30)
         self.code_email = Throttle(3)
         self.code_ip = Throttle(15)
+        self.check_ip = Throttle(30)
+        self.member_adds = Throttle(30, window=24 * 3600)
 
     def system_mail(self, to: str, subject: str, text: str) -> bool:
         """Sends from the TotanRomi system Gmail (the env-configured account).
@@ -230,6 +235,9 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
                 web.login_email.hit(email)
                 web.login_ip.hit(ip)
                 raise HTTPException(401, "אימייל או סיסמה שגויים")
+            exp = u.temp_password_expires_at
+            if u.must_change_password and exp is not None and exp < datetime.now(UTC):
+                raise HTTPException(401, "הסיסמה הראשונית פגה. בקשו מהמנהל סיסמה חדשה")
             u.last_login_at = datetime.now(UTC)
             repo.s.flush()
             repo.s.expunge(u)
@@ -299,6 +307,7 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
                 raise HTTPException(400, "בחרו סיסמה חדשה ששונה מהקודמת")
             me.password_hash = hash_password(new)
             me.must_change_password = False
+            me.temp_password_expires_at = None
             me.session_version += 1  # other devices are signed out
             repo.s.flush()
             repo.s.expunge(me)
@@ -306,12 +315,14 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
         set_session(resp, request, me)
         return resp
 
-    def issue_code(request: Request, kind: str, email: str, subject: str, intro: str) -> bool:
+    def throttle_codes(request: Request, email: str) -> None:
         ip = client_ip(request)
         if web.code_email.blocked(email) or web.code_ip.blocked(ip):
             raise HTTPException(429, "נשלחו כבר כמה קודים. נסו שוב בעוד 15 דקות")
         web.code_email.hit(email)
         web.code_ip.hit(ip)
+
+    def issue_code(kind: str, email: str, subject: str, intro: str) -> bool:
         code = new_code()
         now = datetime.now(UTC)
         with web.db.repo() as repo:
@@ -324,25 +335,37 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
         return web.system_mail(email, subject, f"שלום,\n\n{intro}\n\nהקוד שלך: {code}\n\n"
                                "הקוד בתוקף ל-15 דקות. אם לא ביקשת, אפשר להתעלם מהמייל.")
 
-    def check_code(kind: str, email: str, code: str) -> None:
-        """Raises unless `code` is the newest valid code for this email; one use only."""
+    def check_code(request: Request, kind: str, email: str, code: str) -> None:
+        """Raises unless `code` is the newest valid code for this email; one use only.
+        Wrong guesses are capped per code, per email per day (across new codes, stored
+        in the database so a restart does not reset it) and per IP."""
         now = datetime.now(UTC)
         bad = "הקוד שגוי או שפג תוקפו. אפשר לבקש קוד חדש"
+        ip = client_ip(request)
+        if web.check_ip.blocked(ip):
+            raise HTTPException(429, "יותר מדי ניסיונות. נסו שוב בעוד 15 דקות")
         with web.db.repo() as repo:
+            failures = repo.s.scalar(select(func.coalesce(func.sum(Invite.attempts), 0)).where(
+                Invite.kind == kind, Invite.email == email,
+                Invite.created_at > now - timedelta(days=1))) or 0
+            if failures >= CODE_DAILY_FAILURES:
+                raise HTTPException(429, "יותר מדי קודים שגויים. נסו שוב מחר")
             inv = repo.s.scalar(select(Invite).where(
                 Invite.kind == kind, Invite.email == email, Invite.used_at.is_(None),
                 Invite.expires_at > now).order_by(Invite.id.desc()).limit(1))
             if inv is None:
                 raise HTTPException(400, bad)
             ok = hmac.compare_digest(inv.note or "", token_hash(f"{email}:{code.strip()}"))
+            inv_id = inv.id
             if not ok:
-                inv.attempts = (inv.attempts or 0) + 1
-                if inv.attempts >= CODE_MAX_ATTEMPTS:
-                    inv.used_at = now
-                inv_id = None
-            else:
-                inv_id = inv.id
-        if inv_id is None:  # committed the attempt counter above, now refuse
+                # atomic increment: parallel guesses cannot lose updates
+                repo.s.execute(update(Invite).where(Invite.id == inv_id).values(
+                    attempts=func.coalesce(Invite.attempts, 0) + 1))
+                repo.s.execute(update(Invite).where(
+                    Invite.id == inv_id, Invite.attempts >= CODE_MAX_ATTEMPTS,
+                    Invite.used_at.is_(None)).values(used_at=now))
+        if not ok:  # the counter above is committed; now refuse
+            web.check_ip.hit(ip)
             raise HTTPException(400, bad)
         with web.db.repo() as repo:
             res = repo.s.execute(update(Invite).where(Invite.id == inv_id,
@@ -356,11 +379,13 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
         d = await body(request)
         email = clean_email(d.get("email"))
         with web.db.repo() as repo:
-            if repo.s.scalar(select(User.id).where(func.lower(User.email) == email)):
+            if claimed_user(repo, email) is not None:
                 raise HTTPException(409, "כבר קיים חשבון עם המייל הזה. היכנסו או לחצו על "
                                          "\"שכחתי סיסמה\"")
-        if not issue_code(request, "verify", email, "קוד אימות להרשמה",
-                          "זה קוד האימות להרשמת העסק שלך למערכת החשבוניות של TotanRomi."):
+        throttle_codes(request, email)
+        if not await run_in_threadpool(
+                issue_code, "verify", email, "קוד אימות להרשמה",
+                "זה קוד האימות להרשמת העסק שלך למערכת החשבוניות של TotanRomi."):
             raise HTTPException(503, "לא הצלחנו לשלוח את קוד האימות. נסו שוב בעוד כמה דקות")
         return {"ok": True}
 
@@ -371,9 +396,10 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
         with web.db.repo() as repo:
             exists = repo.s.scalar(select(User.id).where(func.lower(User.email) == email,
                                                          User.active.is_(True)))
+        throttle_codes(request, email)  # same limits whether or not the account exists
         if exists:
-            issue_code(request, "reset", email, "קוד לאיפוס סיסמה",
-                       "ביקשת לאפס את הסיסמה שלך במערכת החשבוניות של TotanRomi.")
+            await run_in_threadpool(issue_code, "reset", email, "קוד לאיפוס סיסמה",
+                                    "ביקשת לאפס את הסיסמה שלך במערכת החשבוניות של TotanRomi.")
         # same answer either way: the form never reveals who has an account
         return {"ok": True}
 
@@ -385,13 +411,14 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
         problem = password_problem(new)
         if problem:
             raise HTTPException(400, problem)
-        check_code("reset", email, str(d.get("code") or ""))
+        check_code(request, "reset", email, str(d.get("code") or ""))
         with web.db.repo() as repo:
             u = repo.s.scalar(select(User).where(func.lower(User.email) == email))
             if u is None or not u.active:
                 raise HTTPException(400, "החשבון לא פעיל")
             u.password_hash = hash_password(new)
             u.must_change_password = False
+            u.temp_password_expires_at = None
             u.session_version += 1
             repo.s.flush()
             repo.s.expunge(u)
@@ -399,6 +426,24 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
         resp = JSONResponse({"ok": True})
         set_session(resp, request, u)
         return resp
+
+    def claimed_user(repo, email: str) -> User | None:
+        """The existing account for this email, ignoring one a manager created that was
+        never used - otherwise anyone could squat an address by "adding an employee"."""
+        u = repo.s.scalar(select(User).where(func.lower(User.email) == email))
+        if u is not None and u.must_change_password and u.last_login_at is None \
+                and not u.is_platform_admin:
+            return None
+        return u
+
+    def release_unclaimed(repo, email: str) -> None:
+        u = repo.s.scalar(select(User).where(func.lower(User.email) == email))
+        if u is not None and claimed_user(repo, email) is None:
+            log.info("Verified owner of an unused added account took the address back")
+            for mb in repo.s.scalars(select(Mailbox).where(Mailbox.user_id == u.id)):
+                mb.user_id = None
+            repo.s.delete(u)
+            repo.s.flush()
 
     def is_admin_email(email: str) -> bool:
         admin = (web.settings.platform_admin_email or web.settings.source_gmail_account or "")
@@ -485,10 +530,11 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
         if problem:
             raise HTTPException(400, problem)
         with web.db.repo() as repo:
-            if repo.s.scalar(select(User.id).where(func.lower(User.email) == email)):
+            if claimed_user(repo, email) is not None:
                 raise HTTPException(409, "כבר קיים חשבון עם המייל הזה")
-        check_code("verify", email, str(d.get("code") or ""))
+        check_code(request, "verify", email, str(d.get("code") or ""))
         with web.db.repo() as repo:
+            release_unclaimed(repo, email)  # the code proved this person owns the inbox
             org = Organization(name=org_name, accountant_email=acc_email)
             repo.s.add(org)
             repo.s.flush()
@@ -753,7 +799,8 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
                               expires_at=datetime.now(UTC) + timedelta(days=7)))
             org = repo.s.get(Organization, u.org_id)
         link = f"{web.base_url(request)}/join?t={tok}"
-        sent = send_invite_email(u, org.name, email, name, link) if d.get("send_email") else False
+        sent = (await run_in_threadpool(send_invite_email, u, org.name, email, name, link)
+                if d.get("send_email") else False)
         return {"link": link, "sent": sent}
 
     @r.post("/api/team/add", dependencies=[Depends(csrf)])
@@ -762,14 +809,21 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
         email = clean_email(d.get("email"))
         name = clean_text(d.get("name"), "שם")
         role = d.get("role") if d.get("role") in Role.ALL else Role.EMPLOYEE
+        if is_admin_email(email):
+            raise HTTPException(409, "כבר קיים חשבון עם המייל הזה")
+        if web.member_adds.blocked(str(u.org_id)):
+            raise HTTPException(429, "הגעתם למספר ההוספות היומי. נסו שוב מחר")
+        web.member_adds.hit(str(u.org_id))
         pw = temp_password()
         with web.db.repo() as repo:
             t = create_user(repo, org_id=u.org_id, email=email, name=name, role=role, password=pw)
             t.must_change_password = True
+            t.temp_password_expires_at = datetime.now(UTC) + timedelta(hours=TEMP_PASSWORD_HOURS)
             org_name = repo.s.get(Organization, u.org_id).name
         login = f"{web.base_url(request)}/login"
         text = login_details_text(name, u.name, org_name, login, email, pw)
-        sent = (send_member_email(u, email, f"הצטרפת למערכת החשבוניות של {org_name}", text)
+        sent = (await run_in_threadpool(send_member_email, u, email,
+                                        f"הצטרפת למערכת החשבוניות של {org_name}", text)
                 if d.get("send_email") else False)
         return {"login_url": login, "email": email, "temp_password": pw, "sent": sent,
                 "message": text}
@@ -781,8 +835,12 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
             t = repo.s.get(User, uid)
             if t is None or t.org_id != u.org_id or t.id == u.id or t.is_platform_admin:
                 raise HTTPException(404, "not found")
+            if t.role == Role.MANAGER:
+                # a manager resets their own password by email code, never by a colleague
+                raise HTTPException(403, "מנהל מאפס סיסמה בעצמו דרך \"שכחתי סיסמה\"")
             t.password_hash = hash_password(pw)
             t.must_change_password = True
+            t.temp_password_expires_at = datetime.now(UTC) + timedelta(hours=TEMP_PASSWORD_HOURS)
             t.session_version += 1
             email, name = t.email, t.name
             org_name = repo.s.get(Organization, u.org_id).name

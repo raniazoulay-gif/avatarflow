@@ -533,3 +533,35 @@ def test_forgot_password(app, monkeypatch):
     assert web(a).post("/api/auth/login", json={"email": "boss@acme.co.il",
                                                  "password": "newpass99"},
                        headers=H).status_code == 200
+
+
+def test_signup_hardening(app, monkeypatch):
+    ctx, a = app
+    sent = _capture_mail(monkeypatch, a)
+    admin = _admin_client(ctx, a)
+    mgr = _signup(ctx, a, admin)
+    # the owner address cannot be squatted by "adding an employee"
+    assert mgr.post("/api/team/add", json={"name": "X", "email": ctx.settings.source_gmail_account},
+                    headers=H).status_code == 409
+    # any other added-but-unused address is reclaimed by its verified owner
+    assert mgr.post("/api/team/add", json={"name": "V", "email": "victim@x.co.il"},
+                    headers=H).status_code == 200
+    c = web(a)
+    assert c.post("/api/signup/code", json={"email": "victim@x.co.il"}, headers=H).status_code == 200
+    r = c.post("/api/signup", json={"email": "victim@x.co.il", "org_name": "Own", "name": "V",
+                                    "password": "vict1234", "code": sent[-1][1]}, headers=H)
+    assert r.status_code == 200, r.text
+    assert c.get("/api/me").json()["org"]["name"] == "Own"
+    # managers cannot reset another manager's password
+    r = mgr.post("/api/team/add", json={"name": "M2", "email": "m2@acme.co.il", "role": "manager"},
+                 headers=H)
+    with ctx.db.repo() as repo:
+        m2 = repo.s.scalar(select(User).where(User.email == "m2@acme.co.il"))
+        m2_id = m2.id
+        # temporary passwords expire
+        from datetime import UTC, datetime, timedelta
+        m2.temp_password_expires_at = datetime.now(UTC) - timedelta(minutes=1)
+    assert mgr.post(f"/api/team/{m2_id}/reset-password", json={}, headers=H).status_code == 403
+    assert web(a).post("/api/auth/login", json={"email": "m2@acme.co.il",
+                                                "password": r.json()["temp_password"]},
+                       headers=H).status_code == 401

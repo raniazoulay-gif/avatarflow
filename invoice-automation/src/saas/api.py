@@ -35,8 +35,10 @@ from .models import Invite, Mailbox, Organization, Role, User
 from .security import (
     Signer,
     hash_password,
+    new_code,
     new_link_token,
     password_problem,
+    temp_password,
     token_hash,
     verify_password,
 )
@@ -45,6 +47,8 @@ log = logging.getLogger(__name__)
 COOKIE = "tr_session"
 NONCE_COOKIE = "tr_oauth"
 SESSION_TTL = 14 * 24 * 3600
+CODE_TTL = 15 * 60
+CODE_MAX_ATTEMPTS = 5
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 
@@ -108,6 +112,30 @@ class Web:
         self.state_signer = Signer(ctx.app_secret, "oauth-state")
         self.login_email = Throttle(8)
         self.login_ip = Throttle(30)
+        self.code_email = Throttle(3)
+        self.code_ip = Throttle(15)
+
+    def system_mail(self, to: str, subject: str, text: str) -> bool:
+        """Sends from the TotanRomi system Gmail (the env-configured account).
+        A fresh client per message: the Google HTTP client is not thread-safe."""
+        s = self.settings
+        if not s.gmail_configured:
+            return False
+        try:
+            from ..gmail.auth import build_gmail_service
+            from ..gmail.client import GmailClient
+            from ..reports.notifications import SUBJECT_TAG
+
+            msg = EmailMessage()
+            msg["Subject"] = f"{SUBJECT_TAG} {subject}"
+            msg["From"] = s.source_gmail_account
+            msg["To"] = to
+            msg.set_content(text)
+            GmailClient(build_gmail_service(s), max_attempts=1).send_raw(msg.as_bytes())
+            return True
+        except Exception as exc:
+            log.warning("System email failed: %s", type(exc).__name__)
+            return False
 
     def base_url(self, request: Request | None = None) -> str:
         s = self.settings
@@ -151,17 +179,23 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
                 request.headers.get("x-requested-with") != "fetch":
             raise HTTPException(403, "bad request origin")
 
-    def manager(u: User = Depends(current_user)) -> User:
+    def ready(u: User = Depends(current_user)) -> User:
+        """Logged in AND not holding a temporary password any more."""
+        if u.must_change_password:
+            raise HTTPException(403, "יש להחליף את הסיסמה הראשונית לפני שממשיכים")
+        return u
+
+    def manager(u: User = Depends(ready)) -> User:
         if u.role != Role.MANAGER or u.org_id is None:
             raise HTTPException(403, "למנהלים בלבד")
         return u
 
-    def member(u: User = Depends(current_user)) -> User:
+    def member(u: User = Depends(ready)) -> User:
         if u.org_id is None:
             raise HTTPException(403, "מסך של עסק - היכנסו כמנהל עסק")
         return u
 
-    def platform_admin(u: User = Depends(current_user)) -> User:
+    def platform_admin(u: User = Depends(ready)) -> User:
         if not u.is_platform_admin:
             raise HTTPException(403, "למנהל המערכת בלבד")
         return u
@@ -231,7 +265,8 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
             mbs = list(repo.s.scalars(select(Mailbox).where(Mailbox.user_id == u.id)))
             out = {
                 "user": {"id": u.id, "name": u.name, "email": u.email, "role": u.role,
-                         "is_platform_admin": u.is_platform_admin},
+                         "is_platform_admin": u.is_platform_admin,
+                         "must_change_password": bool(u.must_change_password)},
                 "org": None,
                 "mailboxes": [{"id": m.id, "email": m.email, "status": m.status,
                                "last_error": m.last_error, "drive": bool(m.scopes and
@@ -247,6 +282,127 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
                               "google_app": "org" if web.engine.org_client(org) else (
                                   "shared" if web.engine.shared_client() else "none")}
         return out
+
+    # ------------------------------------------------------------ passwords
+    @r.post("/api/auth/change-password", dependencies=[Depends(csrf)])
+    async def change_password(request: Request, u: User = Depends(current_user)):
+        d = await body(request)
+        new = str(d.get("password") or "")
+        problem = password_problem(new)
+        if problem:
+            raise HTTPException(400, problem)
+        with web.db.repo() as repo:
+            me = repo.s.get(User, u.id)
+            if not verify_password(str(d.get("current") or ""), me.password_hash):
+                raise HTTPException(400, "הסיסמה הנוכחית שגויה")
+            if verify_password(new, me.password_hash):
+                raise HTTPException(400, "בחרו סיסמה חדשה ששונה מהקודמת")
+            me.password_hash = hash_password(new)
+            me.must_change_password = False
+            me.session_version += 1  # other devices are signed out
+            repo.s.flush()
+            repo.s.expunge(me)
+        resp = JSONResponse({"ok": True})
+        set_session(resp, request, me)
+        return resp
+
+    def issue_code(request: Request, kind: str, email: str, subject: str, intro: str) -> bool:
+        ip = client_ip(request)
+        if web.code_email.blocked(email) or web.code_ip.blocked(ip):
+            raise HTTPException(429, "נשלחו כבר כמה קודים. נסו שוב בעוד 15 דקות")
+        web.code_email.hit(email)
+        web.code_ip.hit(ip)
+        code = new_code()
+        now = datetime.now(UTC)
+        with web.db.repo() as repo:
+            # only the newest code is valid
+            repo.s.execute(update(Invite).where(Invite.kind == kind, Invite.email == email,
+                                                Invite.used_at.is_(None)).values(used_at=now))
+            repo.s.add(Invite(token_hash=token_hash(f"{kind}:{email}:{code}:{new_code()}"),
+                              kind=kind, email=email, note=token_hash(f"{email}:{code}"),
+                              attempts=0, expires_at=now + timedelta(seconds=CODE_TTL)))
+        return web.system_mail(email, subject, f"שלום,\n\n{intro}\n\nהקוד שלך: {code}\n\n"
+                               "הקוד בתוקף ל-15 דקות. אם לא ביקשת, אפשר להתעלם מהמייל.")
+
+    def check_code(kind: str, email: str, code: str) -> None:
+        """Raises unless `code` is the newest valid code for this email; one use only."""
+        now = datetime.now(UTC)
+        bad = "הקוד שגוי או שפג תוקפו. אפשר לבקש קוד חדש"
+        with web.db.repo() as repo:
+            inv = repo.s.scalar(select(Invite).where(
+                Invite.kind == kind, Invite.email == email, Invite.used_at.is_(None),
+                Invite.expires_at > now).order_by(Invite.id.desc()).limit(1))
+            if inv is None:
+                raise HTTPException(400, bad)
+            ok = hmac.compare_digest(inv.note or "", token_hash(f"{email}:{code.strip()}"))
+            if not ok:
+                inv.attempts = (inv.attempts or 0) + 1
+                if inv.attempts >= CODE_MAX_ATTEMPTS:
+                    inv.used_at = now
+                inv_id = None
+            else:
+                inv_id = inv.id
+        if inv_id is None:  # committed the attempt counter above, now refuse
+            raise HTTPException(400, bad)
+        with web.db.repo() as repo:
+            res = repo.s.execute(update(Invite).where(Invite.id == inv_id,
+                                                      Invite.used_at.is_(None))
+                                 .values(used_at=datetime.now(UTC)))
+            if res.rowcount != 1:
+                raise HTTPException(400, bad)
+
+    @r.post("/api/signup/code", dependencies=[Depends(csrf)])
+    async def signup_code(request: Request):
+        d = await body(request)
+        email = clean_email(d.get("email"))
+        with web.db.repo() as repo:
+            if repo.s.scalar(select(User.id).where(func.lower(User.email) == email)):
+                raise HTTPException(409, "כבר קיים חשבון עם המייל הזה. היכנסו או לחצו על "
+                                         "\"שכחתי סיסמה\"")
+        if not issue_code(request, "verify", email, "קוד אימות להרשמה",
+                          "זה קוד האימות להרשמת העסק שלך למערכת החשבוניות של TotanRomi."):
+            raise HTTPException(503, "לא הצלחנו לשלוח את קוד האימות. נסו שוב בעוד כמה דקות")
+        return {"ok": True}
+
+    @r.post("/api/auth/reset-code", dependencies=[Depends(csrf)])
+    async def reset_code(request: Request):
+        d = await body(request)
+        email = clean_email(d.get("email"))
+        with web.db.repo() as repo:
+            exists = repo.s.scalar(select(User.id).where(func.lower(User.email) == email,
+                                                         User.active.is_(True)))
+        if exists:
+            issue_code(request, "reset", email, "קוד לאיפוס סיסמה",
+                       "ביקשת לאפס את הסיסמה שלך במערכת החשבוניות של TotanRomi.")
+        # same answer either way: the form never reveals who has an account
+        return {"ok": True}
+
+    @r.post("/api/auth/reset", dependencies=[Depends(csrf)])
+    async def reset_password(request: Request):
+        d = await body(request)
+        email = clean_email(d.get("email"))
+        new = str(d.get("password") or "")
+        problem = password_problem(new)
+        if problem:
+            raise HTTPException(400, problem)
+        check_code("reset", email, str(d.get("code") or ""))
+        with web.db.repo() as repo:
+            u = repo.s.scalar(select(User).where(func.lower(User.email) == email))
+            if u is None or not u.active:
+                raise HTTPException(400, "החשבון לא פעיל")
+            u.password_hash = hash_password(new)
+            u.must_change_password = False
+            u.session_version += 1
+            repo.s.flush()
+            repo.s.expunge(u)
+        web.login_email.hits.pop(email, None)
+        resp = JSONResponse({"ok": True})
+        set_session(resp, request, u)
+        return resp
+
+    def is_admin_email(email: str) -> bool:
+        admin = (web.settings.platform_admin_email or web.settings.source_gmail_account or "")
+        return bool(admin) and email == admin.strip().lower()
 
     # ------------------------------------------------------------ invites / signup
     def load_invite(repo, tok: str, kind: str | None = None) -> Invite:
@@ -299,6 +455,8 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
     @r.post("/api/signup", dependencies=[Depends(csrf)])
     async def signup(request: Request):
         d = await body(request)
+        if not d.get("token"):
+            return await open_signup(request, d)
         with web.db.repo() as repo:
             inv = load_invite(repo, d.get("token", ""), "org")
             acc = d.get("accountant_email")
@@ -312,6 +470,37 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
             consume_invite(repo, inv)
             inv.org_id = org.id
             repo.s.expunge(u)
+        resp = JSONResponse({"ok": True})
+        set_session(resp, request, u)
+        return resp
+
+    async def open_signup(request: Request, d: dict):
+        """Anyone with the app link: the email is proven by the emailed code."""
+        email = clean_email(d.get("email"))
+        org_name = clean_text(d.get("org_name"), "שם העסק")
+        name = clean_text(d.get("name"), "שם")
+        acc = (d.get("accountant_email") or "").strip()
+        acc_email = clean_email(acc) if acc else None
+        problem = password_problem(str(d.get("password") or ""))
+        if problem:
+            raise HTTPException(400, problem)
+        with web.db.repo() as repo:
+            if repo.s.scalar(select(User.id).where(func.lower(User.email) == email)):
+                raise HTTPException(409, "כבר קיים חשבון עם המייל הזה")
+        check_code("verify", email, str(d.get("code") or ""))
+        with web.db.repo() as repo:
+            org = Organization(name=org_name, accountant_email=acc_email)
+            repo.s.add(org)
+            repo.s.flush()
+            # The TotanRomi owner (verified by the code sent to that inbox) is also the
+            # platform admin, as long as no platform admin exists yet.
+            admin = is_admin_email(email) and not repo.s.scalar(
+                select(User.id).where(User.is_platform_admin.is_(True)).limit(1))
+            u = create_user(repo, org_id=org.id, email=email, name=name, role=Role.MANAGER,
+                            password=str(d.get("password")), admin=bool(admin))
+            org_id = org.id
+            repo.s.expunge(u)
+        log.info("New organisation %s signed up", org_id)
         resp = JSONResponse({"ok": True})
         set_session(resp, request, u)
         return resp
@@ -567,6 +756,69 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
         sent = send_invite_email(u, org.name, email, name, link) if d.get("send_email") else False
         return {"link": link, "sent": sent}
 
+    @r.post("/api/team/add", dependencies=[Depends(csrf)])
+    async def add_member(request: Request, u: User = Depends(manager)):
+        d = await body(request)
+        email = clean_email(d.get("email"))
+        name = clean_text(d.get("name"), "שם")
+        role = d.get("role") if d.get("role") in Role.ALL else Role.EMPLOYEE
+        pw = temp_password()
+        with web.db.repo() as repo:
+            t = create_user(repo, org_id=u.org_id, email=email, name=name, role=role, password=pw)
+            t.must_change_password = True
+            org_name = repo.s.get(Organization, u.org_id).name
+        login = f"{web.base_url(request)}/login"
+        text = login_details_text(name, u.name, org_name, login, email, pw)
+        sent = (send_member_email(u, email, f"הצטרפת למערכת החשבוניות של {org_name}", text)
+                if d.get("send_email") else False)
+        return {"login_url": login, "email": email, "temp_password": pw, "sent": sent,
+                "message": text}
+
+    @r.post("/api/team/{uid}/reset-password", dependencies=[Depends(csrf)])
+    async def reset_member_password(uid: int, request: Request, u: User = Depends(manager)):
+        pw = temp_password()
+        with web.db.repo() as repo:
+            t = repo.s.get(User, uid)
+            if t is None or t.org_id != u.org_id or t.id == u.id or t.is_platform_admin:
+                raise HTTPException(404, "not found")
+            t.password_hash = hash_password(pw)
+            t.must_change_password = True
+            t.session_version += 1
+            email, name = t.email, t.name
+            org_name = repo.s.get(Organization, u.org_id).name
+        login = f"{web.base_url(request)}/login"
+        return {"login_url": login, "email": email, "temp_password": pw,
+                "message": login_details_text(name, u.name, org_name, login, email, pw)}
+
+    def login_details_text(name, sender, org_name, login, email, pw) -> str:
+        return (f"שלום {name},\n\n{sender} פתח/ה לך חשבון במערכת החשבוניות של {org_name}.\n\n"
+                f"כניסה: {login}\nאימייל: {email}\nסיסמה ראשונית: {pw}\n\n"
+                "בכניסה הראשונה המערכת תבקש לבחור סיסמה חדשה, ואחר כך לחבר את תיבת ה-Gmail.")
+
+    def send_member_email(sender: User, to: str, subject: str, text: str) -> bool:
+        """From the manager's own connected Gmail when there is one, else from the
+        TotanRomi system address."""
+        for mb, org in web.engine.active_mailboxes():
+            if mb.user_id == sender.id and mb.status == "active":
+                try:
+                    lock = web.engine.mailbox_lock(mb.id)
+                    msg = EmailMessage()
+                    msg["Subject"] = subject
+                    msg["From"] = mb.email
+                    msg["To"] = to
+                    msg.set_content(text)
+                    if lock.acquire(timeout=15):
+                        try:
+                            web.engine.runtime(mb, org).processor.gmail.send_raw(msg.as_bytes())
+                        finally:
+                            lock.release()
+                        return True
+                except Exception as exc:
+                    log.warning("Member email via manager mailbox failed: %s",
+                                type(exc).__name__)
+                break
+        return web.system_mail(to, subject, text)
+
     def send_invite_email(sender: User, org_name: str, to: str, name: str, link: str) -> bool:
         """Sends the invitation from the manager's own connected Gmail (if any)."""
         for mb, org in web.engine.active_mailboxes():
@@ -758,6 +1010,7 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
 def mount(app: FastAPI, ctx) -> None:
     router, web = create_router(ctx)
     app.include_router(router)
+    app.state.saas_web = web
 
     index = WEB_DIR / "app.html"
 
@@ -767,6 +1020,6 @@ def mount(app: FastAPI, ctx) -> None:
                                      "X-Frame-Options": "DENY",
                                      "Referrer-Policy": "same-origin"})
 
-    for path in ("/app", "/login", "/signup", "/join", "/setup"):
+    for path in ("/app", "/login", "/signup", "/join", "/setup", "/forgot"):
         app.add_api_route(path, page, methods=["GET"], response_class=HTMLResponse,
                           include_in_schema=False)

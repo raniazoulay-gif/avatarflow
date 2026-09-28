@@ -91,6 +91,20 @@ def new_link_token() -> tuple[str, str]:
     return tok, token_hash(tok)
 
 
+def new_code() -> str:
+    """6-digit code sent by email (signup verification / password reset)."""
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def temp_password() -> str:
+    """Readable temporary password (no 0/O, 1/l) - letters and digits, 10 chars."""
+    letters, digits = "abcdefghjkmnpqrstuvwxyz", "23456789"
+    chars = [secrets.choice(letters + digits) for _ in range(8)]
+    chars += [secrets.choice(letters), secrets.choice(digits)]
+    secrets.SystemRandom().shuffle(chars)
+    return "".join(chars)
+
+
 def token_hash(tok: str) -> str:
     return hashlib.sha256(tok.encode()).hexdigest()
 

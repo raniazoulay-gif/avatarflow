@@ -152,6 +152,11 @@ async function api(path,opt={}){
   if(!r.ok) throw new Error((data&&data.detail)||('שגיאה '+r.status));
   return data;
 }
+function loginBox(r,title){
+  return `<p class="t2" style="margin-top:12px">${esc(title)}</p><div class="copy" style="white-space:pre-line;word-break:normal;align-items:flex-start"><span class="grow">${esc(r.message)}</span></div>
+  <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button type="button" class="btn sm ghost" data-copy="${esc(r.message)}">${i('copy','width:15px;height:15px')}העתקת ההודעה</button>
+  <a class="btn sm ghost" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(r.message)}">שליחה בוואטסאפ</a></div>`;
+}
 function copyText(t){try{navigator.clipboard.writeText(t).then(()=>toast('הועתק'),()=>toast('סמנו והעתיקו ידנית'))}catch(e){toast('סמנו והעתיקו ידנית')}}
 
 /* ---------------- state ---------------- */
@@ -166,8 +171,56 @@ function showLogin(){
   authCard(`<h2 style="margin-top:20px;font-size:24px">כניסה למערכת</h2><p class="muted" style="margin:6px 0 0">ניהול חשבוניות אוטומטי עם בינה מלאכותית</p>
   <form id="f"><div class="field"><label for="em">אימייל</label><input id="em" class="en" type="email" autocomplete="username" required></div>
   <div class="field"><label for="pw">סיסמה</label><input id="pw" type="password" autocomplete="current-password" required></div>
-  <button class="btn" style="width:100%;margin-top:18px;height:48px">כניסה</button><div class="err" id="er"></div></form>`);
+  <button class="btn" style="width:100%;margin-top:18px;height:48px">כניסה</button><div class="err" id="er"></div></form>
+  <div style="display:flex;justify-content:space-between;gap:10px;margin-top:16px;font-size:14px"><a href="/forgot">שכחתי סיסמה</a><a href="/signup"><b>עסק חדש? להרשמה</b></a></div>`);
   $('f').onsubmit=async e=>{e.preventDefault();$('er').textContent='';try{await api('/api/auth/login',{json:{email:$('em').value,password:$('pw').value}});history.replaceState(null,'','/app');boot();}catch(x){$('er').textContent=x.message}};
+}
+const PWF=(lbl)=>`<div class="field"><label for="pw">${lbl||'סיסמה'} (8 תווים לפחות, אותיות ומספרים)</label><input id="pw" type="password" autocomplete="new-password" required></div>
+  <div class="field"><label for="pw2">אימות סיסמה</label><input id="pw2" type="password" autocomplete="new-password" required></div>`;
+const pwMismatch=()=>{if($('pw').value!==$('pw2').value){$('er').textContent='הסיסמאות לא זהות';return true;}return false;};
+const backLink=`<p style="margin-top:16px;font-size:14px"><a href="/login">חזרה למסך הכניסה</a></p>`;
+/* open signup: 1) email -> code by mail  2) code + business details + password */
+function showSignup(){
+  authCard(`<h2 style="margin-top:20px;font-size:23px">רישום עסק חדש</h2>
+  <p class="muted">נרשמים כמנהלי העסק. אחר כך מוסיפים את העובדים מהמסך "עובדים".</p>
+  <form id="f"><div class="field"><label for="em">האימייל שלך (Gmail)</label><input id="em" class="en" type="email" autocomplete="email" required></div>
+  <button class="btn" style="width:100%;margin-top:18px;height:48px">שלחו לי קוד אימות</button><div class="err" id="er"></div></form>${backLink}`);
+  $('f').onsubmit=async e=>{e.preventDefault();$('er').textContent='';const email=$('em').value.trim();
+    try{await api('/api/signup/code',{json:{email}});signupStep2(email);}catch(x){$('er').textContent=x.message}};
+}
+function signupStep2(email){
+  authCard(`<h2 style="margin-top:20px;font-size:23px">רישום עסק חדש</h2>
+  <p class="muted">שלחנו קוד בן 6 ספרות אל <b class="en">${esc(email)}</b>. אם הוא לא מופיע, בדקו גם בספאם.</p>
+  <form id="f"><div class="field"><label for="cd">קוד אימות</label><input id="cd" class="en num" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required></div>
+  <div class="field"><label for="org">שם העסק</label><input id="org" required></div><div class="field"><label for="nm">השם שלך</label><input id="nm" required></div>
+  <div class="field"><label for="acc">כתובת רואה החשבון (אפשר גם אחר כך)</label><input id="acc" class="en" type="email"></div>${PWF()}
+  <button class="btn" style="width:100%;margin-top:18px;height:48px">סיום ההרשמה</button><div class="err" id="er"></div></form>
+  <p style="margin-top:16px;font-size:14px"><a href="/signup">שליחת קוד חדש</a></p>`);
+  $('f').onsubmit=async e=>{e.preventDefault();$('er').textContent='';if(pwMismatch())return;
+    try{await api('/api/signup',{json:{email,code:$('cd').value,org_name:$('org').value,name:$('nm').value,accountant_email:$('acc').value||null,password:$('pw').value}});history.replaceState(null,'','/app');boot();}catch(x){$('er').textContent=x.message}};
+}
+function showForgot(){
+  authCard(`<h2 style="margin-top:20px;font-size:23px">איפוס סיסמה</h2><p class="muted">נשלח קוד למייל שאיתו נרשמתם.</p>
+  <form id="f"><div class="field"><label for="em">אימייל</label><input id="em" class="en" type="email" autocomplete="username" required></div>
+  <button class="btn" style="width:100%;margin-top:18px;height:48px">שלחו לי קוד</button><div class="err" id="er"></div></form>${backLink}`);
+  $('f').onsubmit=async e=>{e.preventDefault();$('er').textContent='';const email=$('em').value.trim();
+    try{await api('/api/auth/reset-code',{json:{email}});
+      authCard(`<h2 style="margin-top:20px;font-size:23px">איפוס סיסמה</h2><p class="muted">אם קיים חשבון עם <b class="en">${esc(email)}</b>, נשלח אליו קוד בן 6 ספרות (בדקו גם בספאם).</p>
+      <form id="f"><div class="field"><label for="cd">קוד</label><input id="cd" class="en num" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required></div>${PWF('סיסמה חדשה')}
+      <button class="btn" style="width:100%;margin-top:18px;height:48px">שמירת הסיסמה</button><div class="err" id="er"></div></form>${backLink}`);
+      $('f').onsubmit=async e2=>{e2.preventDefault();$('er').textContent='';if(pwMismatch())return;
+        try{await api('/api/auth/reset',{json:{email,code:$('cd').value,password:$('pw').value}});history.replaceState(null,'','/app');boot();}catch(x){$('er').textContent=x.message}};
+    }catch(x){$('er').textContent=x.message}};
+}
+/* forced after a temporary password, or voluntary from the side menu */
+function showChangePw(forced){
+  authCard(`<h2 style="margin-top:20px;font-size:23px">${forced?'בחירת סיסמה אישית':'החלפת סיסמה'}</h2>
+  ${forced?'<p class="muted">נכנסת עם סיסמה ראשונית. לפני שממשיכים, בחרו סיסמה משלכם.</p>':''}
+  <form id="f"><div class="field"><label for="cur">${forced?'הסיסמה הראשונית שקיבלת':'הסיסמה הנוכחית'}</label><input id="cur" type="password" autocomplete="current-password" required></div>${PWF('סיסמה חדשה')}
+  <button class="btn" style="width:100%;margin-top:18px;height:48px">שמירה</button><div class="err" id="er"></div></form>
+  ${forced?'<p style="margin-top:16px;font-size:14px"><a href="#" data-out="1">התנתקות</a></p>':'<p style="margin-top:16px;font-size:14px"><a href="/app" id="pwback">ביטול</a></p>'}`);
+  $('f').onsubmit=async e=>{e.preventDefault();$('er').textContent='';if(pwMismatch())return;
+    try{await api('/api/auth/change-password',{json:{current:$('cur').value,password:$('pw').value}});toast('הסיסמה עודכנה');boot();}catch(x){$('er').textContent=x.message}};
 }
 async function showTokenForm(kind,tok){
   let info={};
@@ -201,6 +254,7 @@ function renderShell(){
   $('side').innerHTML=`<div class="brand"><div class="wm">TotanRomi</div><div class="sub gt">INVOICE AI</div></div>
    ${items.map(([v,ic,l])=>`<button class="nav ${S.view===v?'on':''}" data-v="${v}">${i(ic)}${l}${v==='inbox'&&S.cache.review?`<span class="badge num">${S.cache.review}</span>`:''}</button>`).join('')}
    <div class="sys">${S.me.org?`<div style="font-weight:700;color:var(--c2)">${esc(S.me.org.name)}</div>`:''}<div style="margin-top:6px;display:flex;align-items:center;gap:8px"><span class="dot"></span>${S.me.org&&S.me.org.production?'העברה לרו״ח פעילה':'מצב בדיקה (DRY RUN)'}</div></div>
+   <button class="nav" data-pw="1">${i('shield')}החלפת סיסמה</button>
    <button class="nav" data-out="1">${i('logout')}התנתקות</button>`;
   $('tabbar').innerHTML=items.slice(0,5).map(([v,ic,l])=>`<button class="${S.view===v?'on':''}" data-v="${v}">${i(ic)}${l}</button>`).join('')+`<button data-out="1">${i('logout')}יציאה</button>`;
   $('top').innerHTML=`<h2>${TITLES[S.view]||''}</h2>
@@ -210,7 +264,8 @@ function renderShell(){
 }
 document.addEventListener('click',e=>{
   const n=e.target.closest('[data-v]');if(n){go(n.dataset.v);return;}
-  if(e.target.closest('[data-out]')){api('/api/auth/logout',{json:{}}).finally(()=>{S.me=null;history.replaceState(null,'','/login');showLogin();});}
+  if(e.target.closest('[data-pw]')){showChangePw(false);return;}
+  if(e.target.closest('[data-out]')){e.preventDefault();api('/api/auth/logout',{json:{}}).finally(()=>{S.me=null;history.replaceState(null,'','/login');showLogin();});}
 });
 document.addEventListener('input',e=>{if(e.target.id==='q'){S.q=e.target.value;clearTimeout(S.qt);S.qt=setTimeout(()=>{if(S.view!=='inbox')go('inbox');else render();},300);}});
 function go(v){S.view=v;S.offset=0;location.hash=v;render();window.scrollTo(0,0);}
@@ -301,14 +356,14 @@ async function vReports(){
 async function vTeam(){
   const d=await api('/api/team');
   return `<div class="card pane"><h3>${i('plus','color:var(--c2)')}הוספת עובד</h3>
-   <p class="muted" style="margin:0 0 4px">העובד יקבל קישור, ייצור סיסמה ויחבר את תיבת ה-Gmail שלו. מאותו רגע המערכת סורקת את התיבה שלו.</p>
+   <p class="muted" style="margin:0 0 4px">המערכת יוצרת לעובד סיסמה ראשונית. שלחו לו את פרטי הכניסה; בכניסה הראשונה הוא יבחר סיסמה משלו ויחבר את תיבת ה-Gmail שלו.</p>
    <form id="inv" class="row"><div class="field"><label for="in_nm">שם</label><input id="in_nm" required></div><div class="field"><label for="in_em">אימייל (Gmail)</label><input id="in_em" class="en" type="email" required></div>
    <div class="field" style="max-width:170px"><label for="in_rl">תפקיד</label><select id="in_rl"><option value="employee">עובד/ת</option><option value="manager">מנהל/ת</option></select></div>
-   <button class="btn" style="height:46px">${i('link')}צור קישור הזמנה</button></form>
-   <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14px"><input type="checkbox" id="in_send" ${S.me.mailboxes.some(m=>m.status==='active')?'checked':'disabled'}> לשלוח את ההזמנה במייל מהתיבה שלי</label><div id="inv_out"></div></div>
+   <button class="btn" style="height:46px">${i('plus')}הוספת עובד</button></form>
+   <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14px"><input type="checkbox" id="in_send" checked> לשלוח לעובד את פרטי הכניסה במייל</label><div id="inv_out"></div></div>
    <div class="card tbl"><table><thead><tr><th>שם</th><th>תפקיד</th><th>תיבות מייל</th><th>מסמכים החודש</th><th></th></tr></thead><tbody>
-   ${d.members.map(m=>`<tr><td><span style="display:flex;align-items:center;gap:10px">${av(m.name)}<span><b>${esc(m.name)}</b><span class="t2 en" style="display:block">${esc(m.email)}</span></span></span></td><td>${m.role==='manager'?'מנהל/ת':'עובד/ת'}</td><td>${m.mailboxes.length?m.mailboxes.map(x=>`<span class="chip ${x.status==='active'?'c-ok':x.status==='error'?'c-bad':'c-mut'} en">${esc(x.email)}</span>`).join(' '):'<span class="chip c-warn">עוד לא חיבר/ה</span>'}</td><td class="num">${m.month}</td><td>${m.user_id!==S.me.user.id?`<button class="btn sm danger" data-deact="${m.user_id}">השבתה</button>`:''}</td></tr>`).join('')}
-   </tbody></table></div>
+   ${d.members.map(m=>`<tr><td><span style="display:flex;align-items:center;gap:10px">${av(m.name)}<span><b>${esc(m.name)}</b><span class="t2 en" style="display:block">${esc(m.email)}</span></span></span></td><td>${m.role==='manager'?'מנהל/ת':'עובד/ת'}</td><td>${m.mailboxes.length?m.mailboxes.map(x=>`<span class="chip ${x.status==='active'?'c-ok':x.status==='error'?'c-bad':'c-mut'} en">${esc(x.email)}</span>`).join(' '):'<span class="chip c-warn">עוד לא חיבר/ה</span>'}</td><td class="num">${m.month}</td><td style="white-space:nowrap">${m.user_id!==S.me.user.id?`<button class="btn sm ghost" data-rpw="${m.user_id}">איפוס סיסמה</button> <button class="btn sm danger" data-deact="${m.user_id}">השבתה</button>`:''}</td></tr>`).join('')}
+   </tbody></table></div><div id="rpw_out"></div>
    ${d.pending_invites.length?`<div class="card pane"><h3>הזמנות שממתינות</h3>${d.pending_invites.map(x=>`<div class="set"><span class="grow"><b>${esc(x.name)}</b> <span class="en muted">${esc(x.email)}</span></span><span class="t2">בתוקף עד ${dt(x.expires_at)}</span><button class="btn sm ghost" data-cancel="${x.id}">ביטול</button></div>`).join('')}</div>`:''}`;
 }
 async function vSettings(){
@@ -374,6 +429,7 @@ document.addEventListener('click',async e=>{
   const tg=t.closest('[data-tg]');if(tg){const v=tg.getAttribute('aria-checked')!=='true';tg.setAttribute('aria-checked',v);try{await api('/api/settings',{method:'PUT',json:{[tg.dataset.tg]:v}});toast('נשמר')}catch(x){toast(x.message)}return;}
   if(t.closest('#scan')){try{const sr=await api('/api/scan',{json:{}});toast(sr.started?'הסריקה התחילה. רעננו בעוד דקה':'כבר רצה סריקה. רעננו בעוד דקה')}catch(x){toast(x.message)}return;}
   if(t.closest('#xls')){window.location='/api/reports/excel';return;}
+  const rp=t.closest('[data-rpw]');if(rp){if(rp.dataset.sure){try{const r=await api(`/api/team/${rp.dataset.rpw}/reset-password`,{json:{}});$('rpw_out').innerHTML=`<div class="card pane">${loginBox(r,'נוצרה סיסמה ראשונית חדשה. שלחו לעובד:')}</div>`;rp.textContent='איפוס סיסמה';delete rp.dataset.sure;}catch(x){toast(x.message)}}else{rp.dataset.sure=1;rp.textContent='לחצו שוב לאישור';}return;}
   const de=t.closest('[data-deact]');if(de){if(de.dataset.sure){try{await api(`/api/team/${de.dataset.deact}/active`,{json:{active:false}});toast('העובד הושבת');render()}catch(x){toast(x.message)}}else{de.dataset.sure=1;de.textContent='לחצו שוב לאישור';}return;}
   const ca=t.closest('[data-cancel]');if(ca){try{await api(`/api/team/invites/${ca.dataset.cancel}/cancel`,{json:{}});render()}catch(x){toast(x.message)}return;}
   const pr=t.closest('[data-prod]');if(pr){
@@ -384,8 +440,8 @@ document.addEventListener('click',async e=>{
 });
 document.addEventListener('submit',async e=>{
   const f=e.target;
-  if(f.id==='inv'){e.preventDefault();try{const r=await api('/api/team/invite',{json:{name:$('in_nm').value,email:$('in_em').value,role:$('in_rl').value,send_email:$('in_send').checked}});
-    $('inv_out').innerHTML=`<div class="copy"><span class="en grow">${esc(r.link)}</span><button type="button" class="btn sm ghost" data-copy="${esc(r.link)}">${i('copy','width:15px;height:15px')}העתקה</button></div><p class="t2">${r.sent?'ההזמנה נשלחה במייל.':'שלחו את הקישור לעובד (וואטסאפ/מייל). בתוקף ל-7 ימים.'}</p>`;f.reset();}catch(x){toast(x.message)}}
+  if(f.id==='inv'){e.preventDefault();try{const r=await api('/api/team/add',{json:{name:$('in_nm').value,email:$('in_em').value,role:$('in_rl').value,send_email:$('in_send').checked}});
+    $('inv_out').innerHTML=loginBox(r,r.sent?'פרטי הכניסה נשלחו לעובד במייל. אפשר לשלוח גם בוואטסאפ:':'שלחו לעובד את פרטי הכניסה (וואטסאפ או מייל):');const box=$('inv_out').innerHTML;await render();if($('inv_out'))$('inv_out').innerHTML=box;}catch(x){toast(x.message)}}
   if(f.id==='st'){e.preventDefault();try{await api('/api/settings',{method:'PUT',json:{name:$('s_nm').value,accountant_email:$('s_acc').value,forward_threshold:Number($('s_thr').value),minutes_per_document:Number($('s_min').value)}});await loadMe();toast('ההגדרות נשמרו')}catch(x){toast(x.message)}}
   if(f.id==='gg'){e.preventDefault();const j={google_client_id:$('g_id').value};if($('g_sec').value)j.google_client_secret=$('g_sec').value;try{await api('/api/settings',{method:'PUT',json:j});await loadMe();toast('החיבור נשמר. עכשיו כל עובד יכול לחבר את התיבה שלו');render()}catch(x){toast(x.message)}}
   if(f.id==='sl'){e.preventDefault();try{const r=await api('/api/admin/signup-link',{json:{note:$('sl_note').value}});$('sl_out').innerHTML=`<div class="copy"><span class="en grow">${esc(r.link)}</span><button type="button" class="btn sm ghost" data-copy="${esc(r.link)}">${i('copy','width:15px;height:15px')}העתקה</button></div><p class="t2">בתוקף ל-14 יום, לשימוש חד-פעמי.</p>`}catch(x){toast(x.message)}}
@@ -409,7 +465,9 @@ async function loadMe(){S.me=await api('/api/me');}
 async function boot(){
   const path=location.pathname, tok=new URLSearchParams(location.search).get('t');
   if(tok&&['/setup','/signup','/join'].includes(path)){showTokenForm(path.slice(1),tok);return;}
-  try{await loadMe();}catch(x){if(x.message!=='login')authCard(`<p class="err">${esc(x.message)}</p>`);else showLogin();return;}
+  if(path==='/forgot'){showForgot();return;}
+  try{await loadMe();}catch(x){if(x.message!=='login')authCard(`<p class="err">${esc(x.message)}</p>`);else if(path==='/signup')showSignup();else showLogin();return;}
+  if(S.me.user.must_change_password){showChangePw(true);return;}
   $('auth').hidden=true;$('app').hidden=false;
   const h=location.hash.slice(1);S.view=TITLES[h]?h:(S.me.org?'dash':'admin');
   render();

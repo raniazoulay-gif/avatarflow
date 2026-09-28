@@ -424,3 +424,112 @@ def test_legacy_fails_closed(app, monkeypatch):
         raise RuntimeError("db down")
     monkeypatch.setattr(ctx.saas, "connected_emails", boom)
     assert ctx.legacy_account_moved()
+
+
+def _capture_mail(monkeypatch, a):
+    """Catches system emails (codes / login details) instead of sending them."""
+    sent: list[tuple[str, str]] = []
+    import re as _re
+
+    def fake(to, subject, text):
+        m = _re.search(r"\b(\d{6})\b", text)
+        sent.append((to, m.group(1) if m else text))
+        return True
+    monkeypatch.setattr(a.state.saas_web, "system_mail", fake)
+    return sent
+
+
+def test_open_signup_with_email_code(app, monkeypatch):
+    ctx, a = app
+    sent = _capture_mail(monkeypatch, a)
+    c = web(a)
+    assert c.post("/api/signup/code", json={"email": "office@biz.co.il"}, headers=H).status_code == 200
+    code = sent[-1][1]
+    body = {"email": "office@biz.co.il", "org_name": "Biz", "name": "Office",
+            "password": "offi1234", "code": "000000" if code != "000000" else "111111"}
+    assert c.post("/api/signup", json=body, headers=H).status_code == 400  # wrong code
+    body["code"] = code
+    assert c.post("/api/signup", json=body, headers=H).status_code == 200
+    me = c.get("/api/me").json()
+    assert me["org"]["name"] == "Biz" and me["user"]["role"] == "manager"
+    assert not me["user"]["is_platform_admin"]
+    # code cannot be used twice / email taken
+    assert web(a).post("/api/signup", json=body, headers=H).status_code == 409
+
+
+def test_owner_signup_becomes_platform_admin(app, monkeypatch):
+    ctx, a = app
+    sent = _capture_mail(monkeypatch, a)
+    owner = ctx.settings.source_gmail_account
+    c = web(a)
+    assert c.post("/api/signup/code", json={"email": owner}, headers=H).status_code == 200
+    r = c.post("/api/signup", json={"email": owner, "org_name": "TotanRomi", "name": "Ran",
+                                    "password": "ran12345", "code": sent[-1][1]}, headers=H)
+    assert r.status_code == 200, r.text
+    me = c.get("/api/me").json()
+    assert me["user"]["is_platform_admin"] and me["org"]["name"] == "TotanRomi"
+    assert c.get("/api/admin/orgs").status_code == 200
+
+
+def test_code_attempts_are_capped(app, monkeypatch):
+    ctx, a = app
+    sent = _capture_mail(monkeypatch, a)
+    c = web(a)
+    c.post("/api/signup/code", json={"email": "x@biz.co.il"}, headers=H)
+    code = sent[-1][1]
+    wrong = "123456" if code != "123456" else "654321"
+    body = {"email": "x@biz.co.il", "org_name": "B", "name": "N", "password": "abcd1234"}
+    for _ in range(5):
+        assert c.post("/api/signup", json={**body, "code": wrong}, headers=H).status_code == 400
+    assert c.post("/api/signup", json={**body, "code": code}, headers=H).status_code == 400
+
+
+def test_employee_temp_password_must_be_changed(app, monkeypatch):
+    ctx, a = app
+    _capture_mail(monkeypatch, a)
+    admin = _admin_client(ctx, a)
+    mgr = _signup(ctx, a, admin)
+    r = mgr.post("/api/team/add", json={"name": "Dana", "email": "dana@acme.co.il",
+                                        "send_email": True}, headers=H)
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["sent"] and d["temp_password"] in d["message"]
+    emp = web(a)
+    assert emp.post("/api/auth/login", json={"email": "dana@acme.co.il",
+                                             "password": d["temp_password"]},
+                    headers=H).status_code == 200
+    assert emp.get("/api/me").json()["user"]["must_change_password"]
+    assert emp.get("/api/dashboard").status_code == 403
+    assert emp.post("/api/auth/change-password", json={"current": "nope1234",
+                                                       "password": "dana5678"},
+                    headers=H).status_code == 400
+    assert emp.post("/api/auth/change-password", json={"current": d["temp_password"],
+                                                       "password": "dana5678"},
+                    headers=H).status_code == 200
+    assert emp.get("/api/dashboard").status_code == 200
+    # manager resets it: new temporary password, old sessions end
+    uid = emp.get("/api/me").json()["user"]["id"]
+    r2 = mgr.post(f"/api/team/{uid}/reset-password", json={}, headers=H).json()
+    assert emp.get("/api/me").status_code == 401
+    e2 = web(a)
+    e2.post("/api/auth/login", json={"email": "dana@acme.co.il", "password": r2["temp_password"]},
+            headers=H)
+    assert e2.get("/api/me").json()["user"]["must_change_password"]
+
+
+def test_forgot_password(app, monkeypatch):
+    ctx, a = app
+    sent = _capture_mail(monkeypatch, a)
+    admin = _admin_client(ctx, a)
+    _signup(ctx, a, admin)
+    c = web(a)
+    assert c.post("/api/auth/reset-code", json={"email": "nobody@x.co.il"},
+                  headers=H).status_code == 200
+    assert not sent  # unknown email: same answer, nothing sent
+    c.post("/api/auth/reset-code", json={"email": "boss@acme.co.il"}, headers=H)
+    r = c.post("/api/auth/reset", json={"email": "boss@acme.co.il", "code": sent[-1][1],
+                                        "password": "newpass99"}, headers=H)
+    assert r.status_code == 200
+    assert web(a).post("/api/auth/login", json={"email": "boss@acme.co.il",
+                                                 "password": "newpass99"},
+                       headers=H).status_code == 200

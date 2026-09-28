@@ -54,6 +54,9 @@ class User(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    # Set when a manager created the account with a temporary password.
+    must_change_password: Mapped[bool | None] = mapped_column(Boolean, nullable=True,
+                                                              default=False)
 
 
 class Mailbox(Base):
@@ -80,7 +83,8 @@ class Mailbox(Base):
 
 class Invite(Base):
     """One-time links: kind='org' creates a new customer (manager signs up),
-    kind='user' adds an employee/manager to an existing organisation."""
+    kind='user' adds an employee/manager to an existing organisation.
+    kind='verify' / 'reset': a 6-digit code emailed for open signup / password reset."""
 
     __tablename__ = "invites"
 
@@ -96,3 +100,5 @@ class Invite(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime())
     used_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    # kind='verify'/'reset': wrong-code attempts (the code is short, so it is capped)
+    attempts: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)

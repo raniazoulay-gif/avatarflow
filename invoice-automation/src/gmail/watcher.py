@@ -25,7 +25,10 @@ BASE_QUERY = "-in:sent -in:drafts -in:spam -in:trash -in:chats " \
 
 
 class Watcher:
-    def __init__(self, settings: Settings, db: Database, gmail: GmailAPI, processor) -> None:
+    def __init__(self, settings: Settings, db: Database, gmail: GmailAPI, processor,
+                 state_prefix: str = "") -> None:
+        # state_prefix keeps per-mailbox markers apart ("" = the original account)
+        self.prefix = state_prefix
         self.settings = settings
         self.db = db
         self.gmail = gmail
@@ -35,10 +38,10 @@ class Watcher:
     def monitor_start_epoch(self) -> int:
         """Emails older than the first start are only handled via BACKFILL."""
         with self.db.repo() as repo:
-            v = repo.get_state("monitor_start_epoch")
+            v = repo.get_state(self.prefix + "monitor_start_epoch")
             if v is None:
                 v = str(int(time.time()) - 60)
-                repo.set_state("monitor_start_epoch", v)
+                repo.set_state(self.prefix + "monitor_start_epoch", v)
             return int(v)
 
     def poll_once(self) -> dict[str, str]:
@@ -53,7 +56,7 @@ class Watcher:
             with self.db.repo() as repo:
                 todo = [i for i in ids
                         if repo.needs_processing(i, self.settings.max_processing_attempts)]
-                repo.set_state("last_poll", datetime.now(UTC).isoformat())
+                repo.set_state(self.prefix + "last_poll", datetime.now(UTC).isoformat())
             if todo:
                 log.info("Poll found %d new message(s)", len(todo))
             return self.processor.process_many(todo)

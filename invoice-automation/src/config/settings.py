@@ -85,6 +85,12 @@ class Settings(BaseSettings):
     # Per-invoice notification email to SOURCE_GMAIL_ACCOUNT: off | dry_run | always
     notify_detections: str = "dry_run"
 
+    # Web app (multi-tenant)
+    app_secret_key: str = ""        # optional; a key is generated and kept in the DB otherwise
+    public_base_url: str = ""       # e.g. https://app.example.com (Railway domain is auto-detected)
+    platform_admin_email: str = ""  # TotanRomi admin (default: SOURCE_GMAIL_ACCOUNT)
+    saas_poll_interval_seconds: int = 120
+
     # Server
     public_contact_email: str = ""  # shown on /privacy (defaults to SOURCE_GMAIL_ACCOUNT)
     host: str = "0.0.0.0"

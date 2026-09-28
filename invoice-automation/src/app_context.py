@@ -57,9 +57,40 @@ class AppContext:
                           if gmail and self.forwarder else None)
         self.watcher = Watcher(settings, self.db, gmail, self.processor) if gmail else None
 
+        # Multi-tenant web app: mailboxes connected by customers.
+        from .saas.engine import SaasEngine
+        from .saas.security import Vault, resolve_app_secret
+
+        self.app_secret = resolve_app_secret(settings.app_secret_key, self.db)
+        self.vault = Vault(self.app_secret)
+        self.saas = SaasEngine(settings, self.db, self.ai, self.extractor, self.vault)
+
+    def bootstrap_admin(self) -> None:
+        try:
+            from .saas.bootstrap import ensure_platform_admin
+
+            log.info("Platform admin: %s", ensure_platform_admin(self.settings, self.db, self.gmail))
+        except Exception as exc:
+            log.error("Platform admin bootstrap failed: %s", type(exc).__name__)
+
+    def legacy_account_moved(self) -> bool:
+        """The env-configured account was connected in the web app: the web app
+        engine owns it now, so the original watcher stands down (no double work)."""
+        src = (self.settings.source_gmail_account or "").lower()
+        try:
+            return bool(src) and src in self.saas.connected_emails()
+        except Exception:
+            return False
+
+    def safe_saas_poll(self) -> None:
+        try:
+            self.saas.poll_all()
+        except Exception as exc:
+            log.error("Web-app mailbox poll failed: %s", type(exc).__name__)
+
     # Scheduler-safe wrappers: never raise into the scheduler thread.
     def safe_poll(self) -> None:
-        if not self.watcher:
+        if not self.watcher or self.legacy_account_moved():
             return
         try:
             self.watcher.poll_once()

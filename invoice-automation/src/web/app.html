@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>TotanRomi Invoice AI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pacifico&family=Rubik:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap">
+<style>
+:root{--bg:#F4F6FB;--surface:#FFFFFF;--surface2:#F8FAFC;--line:#E7EBF3;--ink:#0F172A;--muted:#64748B;--faint:#94A3B8;
+  --c2:#7C3AED;--c2soft:#F3EEFF;--c1soft:#E6FAFD;--ok:#059669;--oksoft:#E7F8F1;--warn:#B45309;--warnsoft:#FEF3E2;--bad:#DC2626;--badsoft:#FDECEC;
+  --grad:linear-gradient(90deg,#06B6D4,#7C3AED);--shadow:0 1px 2px rgba(15,23,42,.05),0 8px 24px rgba(15,23,42,.06);color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#0B1020;--surface:#121A2E;--surface2:#0F172A;--line:#23304A;--ink:#E6EAF2;--muted:#9AA7BD;--faint:#6B7A93;--c2soft:#231A45;--c1soft:#0C2B33;--ok:#34D399;--oksoft:#0E2E25;--warn:#FBBF24;--warnsoft:#332611;--bad:#F87171;--badsoft:#3A1618;--shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);color-scheme:dark}}
+*{box-sizing:border-box}[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:'Rubik','Segoe UI',Arial,sans-serif;font-size:15px}
+button{font-family:inherit;font-size:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--c2);outline-offset:2px}
+a{color:var(--c2)}
+.en{font-family:'Space Grotesk',system-ui,sans-serif;direction:ltr;unicode-bidi:isolate}
+.num{font-variant-numeric:tabular-nums}
+.gt{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.wm{font-family:'Pacifico',cursive;direction:ltr;unicode-bidi:isolate}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow)}
+.muted{color:var(--muted)}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:30px;font-size:13px;font-weight:600;white-space:nowrap}
+.c-ok{background:var(--oksoft);color:var(--ok)}.c-warn{background:var(--warnsoft);color:var(--warn)}.c-bad{background:var(--badsoft);color:var(--bad)}.c-mut{background:var(--surface2);color:var(--muted);border:1px solid var(--line)}.c-ai{background:var(--c2soft);color:var(--c2)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:12px;padding:10px 18px;font-weight:700;background:var(--grad);color:#fff;box-shadow:0 6px 16px rgba(124,58,237,.25);text-decoration:none}
+.btn.ghost{background:var(--surface);color:var(--ink);border:1px solid var(--line);box-shadow:none}
+.btn.danger{background:var(--badsoft);color:var(--bad);box-shadow:none}
+.btn.sm{padding:7px 12px;font-size:13px;border-radius:10px}
+.btn[disabled]{opacity:.55;cursor:not-allowed}
+svg.i{width:20px;height:20px;flex:none;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+h1,h2,h3{margin:0;text-wrap:balance}
+.brand{text-align:center}.brand .wm{font-size:40px;line-height:1.3}.brand .sub{font-family:'Space Grotesk',sans-serif;font-weight:700;letter-spacing:6px;font-size:13px}
+/* auth */
+.auth{min-height:100%;display:grid;place-items:center;padding:32px 16px;background:radial-gradient(700px 500px at 15% 10%,var(--c1soft),transparent 60%),radial-gradient(700px 600px at 90% 95%,var(--c2soft),transparent 60%),var(--bg)}
+.auth .card{width:min(460px,100%);padding:32px}
+.field{display:flex;flex-direction:column;gap:6px;margin-top:14px}
+.field label{font-size:13px;color:var(--muted)}
+.field input,.field select{height:46px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);padding:0 14px;font:inherit;color:var(--ink);width:100%}
+.err{color:var(--bad);font-weight:600;margin-top:12px;min-height:1em}
+/* shell */
+#app{display:grid;grid-template-columns:250px 1fr;min-height:100%}
+.side{background:var(--surface);border-left:1px solid var(--line);padding:22px 16px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh}
+.side .brand{margin-bottom:18px}.side .brand .wm{font-size:32px}
+.nav{display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:12px;border:0;background:none;color:var(--muted);font-weight:500;text-align:right;width:100%}
+.nav:hover{background:var(--surface2)}
+.nav.on{background:linear-gradient(90deg,var(--c1soft),var(--c2soft));color:var(--c2);font-weight:700}
+.nav .badge{margin-right:auto;background:var(--c2);color:#fff;border-radius:20px;font-size:12px;padding:1px 8px}
+.sys{margin-top:auto;padding:14px;border-radius:14px;background:linear-gradient(135deg,var(--c1soft),var(--c2soft));font-size:13px}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;background:var(--ok)}
+.top{display:flex;align-items:center;gap:12px;padding:14px 26px;background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+.top h2{font-size:22px}
+.search{display:flex;align-items:center;gap:8px;height:40px;border-radius:11px;background:var(--surface2);border:1px solid var(--line);padding:0 12px;color:var(--faint);width:230px}
+.search input{border:0;background:transparent;font:inherit;color:var(--ink);width:100%;outline:none}
+main{padding:24px 26px 40px;display:flex;flex-direction:column;gap:20px;min-width:0}
+.banner{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:14px;background:var(--warnsoft);color:var(--warn);font-weight:600;font-size:14px;flex-wrap:wrap}
+.banner.info{background:var(--c2soft);color:var(--c2)}
+.banner.bad{background:var(--badsoft);color:var(--bad)}
+.hello{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap}.hello h1{font-size:27px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.kpi{padding:18px 20px}.kpi .h{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:14px;gap:8px}
+.kpi .ic{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none}
+.kpi .v{font-family:'Space Grotesk',sans-serif;font-size:34px;font-weight:700;margin-top:6px}
+.kpi .d{font-size:12.5px;margin-top:2px;color:var(--muted)}
+.grid2{display:grid;grid-template-columns:1.35fr 1fr;gap:18px}
+.pane{padding:20px 22px;min-width:0}.pane h3{font-size:17px;margin-bottom:12px;display:flex;align-items:center;gap:10px}
+.pane h3 .chip{margin-right:auto}
+.list .it{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}.list .it:last-child{border-bottom:0}
+.ft{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;font:700 11px 'Space Grotesk',sans-serif;flex:none;background:var(--badsoft);color:var(--bad)}
+.ft.DOCX,.ft.DOC{background:#E6EEFE;color:#2563EB}.ft.XLSX,.ft.XLS{background:var(--oksoft);color:var(--ok)}
+.grow{flex:1;min-width:0}.t1{font-weight:700;overflow:hidden;text-overflow:ellipsis}.t2{font-size:13px;color:var(--muted)}
+.tbl{overflow-x:auto}table{width:100%;border-collapse:collapse;min-width:640px}
+th{font-size:13px;color:var(--muted);font-weight:600;text-align:right;padding:10px 12px;background:var(--surface2);border-bottom:1px solid var(--line)}
+td{padding:12px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr.click{cursor:pointer}tr.click:hover td{background:var(--surface2)}
+.bar{height:8px;border-radius:8px;background:var(--surface2);border:1px solid var(--line);overflow:hidden}.bar i{display:block;height:100%;background:var(--grad);border-radius:8px}
+.filters{display:flex;gap:8px;flex-wrap:wrap}
+.filters button{border:1px solid var(--line);background:var(--surface);border-radius:30px;padding:7px 14px;font-weight:600;font-size:13.5px;color:var(--muted)}
+.filters button.on{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.docs{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
+.doc{padding:12px;cursor:pointer}
+.thumb{height:110px;border-radius:10px;background:var(--surface2);position:relative;padding:12px}
+.thumb span{display:block;height:7px;border-radius:5px;background:var(--line);margin-bottom:9px}
+.thumb b{position:absolute;left:8px;bottom:8px;background:var(--bad);color:#fff;font:700 11px 'Space Grotesk';padding:2px 7px;border-radius:5px}
+.thumb em{position:absolute;right:8px;bottom:8px;width:26px;height:26px;border-radius:50%;background:var(--ok);display:grid;place-items:center;color:#fff}
+.toggle{width:52px;height:30px;border-radius:30px;border:0;position:relative;background:var(--line);flex:none;padding:0}
+.toggle[aria-checked="true"]{background:var(--grad)}
+.toggle::after{content:"";position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:right .15s}
+.toggle[aria-checked="true"]::after{right:26px}
+.set{display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}.set:last-child{border-bottom:0}
+input[type=range]{width:100%;accent-color:#7C3AED}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}.row .field{flex:1;min-width:180px}
+.av{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:#fff;flex:none}
+.scrim{position:fixed;inset:0;background:rgba(15,23,42,.35);z-index:20}
+.drawer{position:fixed;top:0;bottom:0;left:0;width:min(480px,100%);background:var(--surface);z-index:21;box-shadow:0 0 60px rgba(0,0,0,.25);overflow:auto;padding:22px 22px calc(22px + env(safe-area-inset-bottom,0px))}
+.step{display:flex;gap:12px;align-items:flex-start;position:relative;padding-bottom:16px}
+.step .b{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;flex:none;background:var(--grad);color:#fff}
+.step.pend .b{background:var(--surface2);color:var(--faint);border:1px solid var(--line)}
+.step:not(:last-child)::before{content:"";position:absolute;right:16px;top:36px;bottom:0;width:2px;background:var(--line)}
+.toast{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:12px 18px;border-radius:12px;font-weight:600;z-index:30;box-shadow:0 10px 30px rgba(0,0,0,.25);max-width:92vw}
+.copy{display:flex;gap:8px;align-items:center;background:var(--surface2);border:1px dashed var(--line);border-radius:12px;padding:10px 12px;margin-top:10px;word-break:break-all;font-size:13px}
+.empty{padding:28px;text-align:center;color:var(--muted)}
+.tabbar{display:none}
+.chart{width:100%;height:auto;direction:ltr}
+ol.guide{padding-right:20px;margin:8px 0 0;display:grid;gap:6px;font-size:14px}
+@media (max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}.search{display:none}}
+@media (max-width:760px){
+  #app{grid-template-columns:1fr}.side{display:none}.top{padding:12px 16px}
+  main{padding:16px 16px calc(96px + env(safe-area-inset-bottom,0px))}
+  .kpi .v{font-size:27px}.hello h1{font-size:22px}
+  .list .it{flex-wrap:wrap}.list .it .grow{flex-basis:calc(100% - 56px)}
+  .tabbar{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:10;background:var(--surface);border-top:1px solid var(--line);padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));justify-content:space-around}
+  .tabbar button{border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;color:var(--muted);padding:6px 4px;min-width:54px}
+  .tabbar button.on{color:var(--c2);font-weight:700}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="auth" class="auth" hidden></div>
+<div id="app" hidden>
+  <aside class="side" id="side"></aside>
+  <div style="min-width:0"><div class="top" id="top"></div><main id="main"></main></div>
+  <nav class="tabbar" id="tabbar"></nav>
+</div>
+<div id="layer"></div>
+<script>
+"use strict";
+/* ---------------- utilities ---------------- */
+const $=id=>document.getElementById(id);
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const IC={home:'<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',mail:'<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/>',file:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',truck:'<path d="M3 6h11v10H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>',chart:'<path d="M4 20V4M4 20h16"/><path d="M8 16v-4M12 16V8M16 16v-6"/>',users:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.9.8 3.1 2.6 3.5 5.2"/>',cog:'<circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M2.5 12h3M18.5 12h3M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/>',scan:'<path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/>',send:'<path d="M21 3L10 14"/><path d="M21 3l-7 18-4-7-7-4z"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',spark:'<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>',check:'<path d="M5 12.5l4.5 4.5L19 7.5"/>',x:'<path d="M6 6l12 12M18 6L6 18"/>',shield:'<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/>',tag:'<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.5"/>',folder:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',search:'<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/>',logout:'<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 16l-4-4 4-4M6 12h10"/>',building:'<path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M16 9h2a2 2 0 0 1 2 2v10"/><path d="M8 7h4M8 11h4M8 15h4M3 21h18"/>',alert:'<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/>',down:'<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',plus:'<path d="M12 5v14M5 12h14"/>',link:'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',copy:'<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',drive:'<path d="M8 3h8l6 10-4 7H6l-4-7z"/><path d="M8 3l6 10H2M16 3L10 13M6 20l4-7h12"/>'};
+const i=(n,s='')=>`<svg class="i" viewBox="0 0 24 24" aria-hidden="true" style="${s}">${IC[n]||''}</svg>`;
+const COLORS=['#0891B2','#7C3AED','#DB2777','#EA580C','#059669','#2563EB','#9333EA'];
+const av=(name)=>{name=String(name||'?');let h=0;for(const c of name)h=(h*31+c.charCodeAt(0))>>>0;return `<span class="av" style="background:${COLORS[h%COLORS.length]}">${esc(name[0])}</span>`;};
+const money=(v,c)=>v==null?'':((!c||['ILS','NIS'].includes(String(c).toUpperCase()))?'₪':esc(c)+' ')+Number(v).toLocaleString('en-US',{maximumFractionDigits:0});
+const dt=s=>{if(!s)return'';const d=new Date(s);return d.toLocaleDateString('he-IL',{day:'numeric',month:'numeric'})};
+const dtt=s=>{if(!s)return'';const d=new Date(s);return d.toLocaleString('he-IL',{day:'numeric',month:'numeric',hour:'2-digit',minute:'2-digit'})};
+const BUCKET={invoice:['חשבונית','c-ok'],review:['לבדיקה','c-warn'],not_invoice:['לא חשבונית','c-mut'],error:['שגיאה','c-bad'],pending:['בתהליך','c-mut']};
+const bchip=b=>{const x=BUCKET[b]||BUCKET.pending;return `<span class="chip ${x[1]}">${x[0]}</span>`};
+const score=d=>`<span class="chip c-ai">${i('spark','width:14px;height:14px')}<span class="en num">${Number(d.score)|0}%</span></span>`;
+const ft=d=>`<span class="ft ${esc(d.file_type)}">${esc(d.file_type)}</span>`;
+function toast(msg){const el=document.createElement('div');el.className='toast';el.textContent=msg;document.body.appendChild(el);setTimeout(()=>el.remove(),3200);}
+async function api(path,opt={}){
+  const o={credentials:'same-origin',headers:{'X-Requested-With':'fetch'},...opt};
+  if(opt.json!==undefined){o.method=o.method||'POST';o.headers['Content-Type']='application/json';o.body=JSON.stringify(opt.json);}
+  const r=await fetch(path,o);
+  if(r.status===401&&!path.startsWith('/api/auth')){S.me=null;showLogin();throw new Error('login');}
+  let data=null;try{data=await r.json()}catch(e){}
+  if(!r.ok) throw new Error((data&&data.detail)||('שגיאה '+r.status));
+  return data;
+}
+function copyText(t){try{navigator.clipboard.writeText(t).then(()=>toast('הועתק'),()=>toast('סמנו והעתיקו ידנית'))}catch(e){toast('סמנו והעתיקו ידנית')}}
+
+/* ---------------- state ---------------- */
+const S={me:null,view:'dash',filter:'',q:'',offset:0,cache:{}};
+const isMgr=()=>S.me&&S.me.user.role==='manager'&&S.me.org;
+const isAdmin=()=>S.me&&S.me.user.is_platform_admin;
+
+/* ---------------- auth screens ---------------- */
+const brand=`<div class="brand"><div class="wm">TotanRomi</div><div class="sub gt">INVOICE AI</div></div>`;
+function authCard(inner){$('app').hidden=true;const a=$('auth');a.hidden=false;a.innerHTML=`<div class="card">${brand}${inner}</div>`;}
+function showLogin(){
+  authCard(`<h2 style="margin-top:20px;font-size:24px">כניסה למערכת</h2><p class="muted" style="margin:6px 0 0">ניהול חשבוניות אוטומטי עם בינה מלאכותית</p>
+  <form id="f"><div class="field"><label for="em">אימייל</label><input id="em" class="en" type="email" autocomplete="username" required></div>
+  <div class="field"><label for="pw">סיסמה</label><input id="pw" type="password" autocomplete="current-password" required></div>
+  <button class="btn" style="width:100%;margin-top:18px;height:48px">כניסה</button><div class="err" id="er"></div></form>`);
+  $('f').onsubmit=async e=>{e.preventDefault();$('er').textContent='';try{await api('/api/auth/login',{json:{email:$('em').value,password:$('pw').value}});history.replaceState(null,'','/app');boot();}catch(x){$('er').textContent=x.message}};
+}
+async function showTokenForm(kind,tok){
+  let info={};
+  try{info=await api('/api/invite/'+encodeURIComponent(tok))}catch(x){authCard(`<h2 style="margin-top:20px">הקישור לא תקף</h2><p class="muted">${esc(x.message)}</p><a class="btn" href="/login" style="margin-top:14px">למסך הכניסה</a>`);return;}
+  const pw=`<div class="field"><label for="pw">סיסמה (8 תווים לפחות, אותיות ומספרים)</label><input id="pw" type="password" autocomplete="new-password" required></div>
+            <div class="field"><label for="pw2">אימות סיסמה</label><input id="pw2" type="password" autocomplete="new-password" required></div>`;
+  let title,fields,endpoint,build;
+  if(kind==='setup'){title='הקמת חשבון מנהל המערכת';fields=`<p class="muted">החשבון: <b class="en">${esc(info.email)}</b></p><div class="field"><label for="nm">שם מלא</label><input id="nm" required></div>${pw}`;endpoint='/api/setup';build=()=>({token:tok,name:$('nm').value,password:$('pw').value});}
+  else if(kind==='signup'){title='רישום עסק חדש';fields=`<p class="muted">אתם נרשמים כמנהלי העסק. אחרי ההרשמה תוסיפו את העובדים.</p>
+    <div class="field"><label for="org">שם העסק</label><input id="org" required></div><div class="field"><label for="nm">השם שלך</label><input id="nm" required></div>
+    <div class="field"><label for="em">האימייל שלך (Gmail)</label><input id="em" class="en" type="email" required></div>
+    <div class="field"><label for="acc">כתובת רואה החשבון (אפשר גם אחר כך)</label><input id="acc" class="en" type="email"></div>${pw}`;
+    endpoint='/api/signup';build=()=>({token:tok,org_name:$('org').value,name:$('nm').value,email:$('em').value,accountant_email:$('acc').value||null,password:$('pw').value});}
+  else{title=`הצטרפות ל${esc(info.org_name||'')}`;fields=`<p class="muted">החשבון שלך: <b class="en">${esc(info.email)}</b></p><div class="field"><label for="nm">שם מלא</label><input id="nm" value="${esc(info.name||'')}" required></div>${pw}`;endpoint='/api/join';build=()=>({token:tok,name:$('nm').value,password:$('pw').value});}
+  authCard(`<h2 style="margin-top:20px;font-size:23px">${title}</h2><form id="f">${fields}<button class="btn" style="width:100%;margin-top:18px;height:48px">המשך</button><div class="err" id="er"></div></form>`);
+  $('f').onsubmit=async e=>{e.preventDefault();$('er').textContent='';if($('pw').value!==$('pw2').value){$('er').textContent='הסיסמאות לא זהות';return;}
+    try{await api(endpoint,{json:build()});history.replaceState(null,'','/app');boot();}catch(x){$('er').textContent=x.message}};
+}
+
+/* ---------------- shell ---------------- */
+function navItems(){
+  const it=[];
+  if(S.me.org){it.push(['dash','home','לוח בקרה'],['inbox','mail','דואר נכנס'],['docs','file','חשבוניות'],['sup','truck','ספקים']);
+    if(isMgr())it.push(['reports','chart','דוחות'],['team','users','עובדים'],['settings','cog','הגדרות']);}
+  if(isAdmin())it.push(['admin','building','לקוחות TotanRomi']);
+  return it;
+}
+const TITLES={dash:'לוח בקרה',inbox:'דואר נכנס',docs:'חשבוניות',sup:'ספקים',reports:'דוחות',team:'עובדים ותיבות מייל',settings:'הגדרות',admin:'הלקוחות של TotanRomi'};
+function renderShell(){
+  const items=navItems();const u=S.me.user;
+  $('side').innerHTML=`<div class="brand"><div class="wm">TotanRomi</div><div class="sub gt">INVOICE AI</div></div>
+   ${items.map(([v,ic,l])=>`<button class="nav ${S.view===v?'on':''}" data-v="${v}">${i(ic)}${l}${v==='inbox'&&S.cache.review?`<span class="badge num">${S.cache.review}</span>`:''}</button>`).join('')}
+   <div class="sys">${S.me.org?`<div style="font-weight:700;color:var(--c2)">${esc(S.me.org.name)}</div>`:''}<div style="margin-top:6px;display:flex;align-items:center;gap:8px"><span class="dot"></span>${S.me.org&&S.me.org.production?'העברה לרו״ח פעילה':'מצב בדיקה (DRY RUN)'}</div></div>
+   <button class="nav" data-out="1">${i('logout')}התנתקות</button>`;
+  $('tabbar').innerHTML=items.slice(0,5).map(([v,ic,l])=>`<button class="${S.view===v?'on':''}" data-v="${v}">${i(ic)}${l}</button>`).join('')+`<button data-out="1">${i('logout')}יציאה</button>`;
+  $('top').innerHTML=`<h2>${TITLES[S.view]||''}</h2>
+   <div style="margin-right:auto;display:flex;align-items:center;gap:12px">
+   ${S.me.org?`<label class="search">${i('search')}<input id="q" placeholder="חיפוש ספק או מספר…" value="${esc(S.q)}"></label>`:''}
+   <span style="display:flex;align-items:center;gap:10px">${av(u.name)}<span><span class="t1" style="display:block;font-size:14px">${esc(u.name)}</span><span class="t2">${u.is_platform_admin?'מנהל מערכת':u.role==='manager'?'מנהל/ת':'עובד/ת'}</span></span></span></div>`;
+}
+document.addEventListener('click',e=>{
+  const n=e.target.closest('[data-v]');if(n){go(n.dataset.v);return;}
+  if(e.target.closest('[data-out]')){api('/api/auth/logout',{json:{}}).finally(()=>{S.me=null;history.replaceState(null,'','/login');showLogin();});}
+});
+document.addEventListener('input',e=>{if(e.target.id==='q'){S.q=e.target.value;clearTimeout(S.qt);S.qt=setTimeout(()=>{if(S.view!=='inbox')go('inbox');else render();},300);}});
+function go(v){S.view=v;S.offset=0;location.hash=v;render();window.scrollTo(0,0);}
+window.addEventListener('hashchange',()=>{const v=location.hash.slice(1);if(v&&v!==S.view&&TITLES[v]){S.view=v;render();}});
+
+/* ---------------- charts ---------------- */
+function bars(vals,labels,hi){
+  const W=520,H=180,max=Math.max(...vals,1),bw=W/Math.max(vals.length,1);
+  return `<svg class="chart" viewBox="0 0 ${W} ${H+28}" role="img" aria-label="גרף"><defs><linearGradient id="gb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#06B6D4"/><stop offset="1" stop-color="#7C3AED"/></linearGradient></defs>
+   ${[0,.5,1].map(f=>`<line x1="0" x2="${W}" y1="${H-f*H*.9}" y2="${H-f*H*.9}" stroke="var(--line)"/>`).join('')}
+   ${vals.map((v,k)=>{const h=v/max*H*.9;return `<rect x="${k*bw+bw*.22}" y="${H-h}" width="${bw*.56}" height="${Math.max(h,1)}" rx="7" fill="${k===hi?'url(#gb)':'var(--line)'}"/><text x="${k*bw+bw/2}" y="${H-h-6}" text-anchor="middle" font-size="12" font-family="Space Grotesk" fill="var(--muted)">${v}</text><text x="${k*bw+bw/2}" y="${H+20}" text-anchor="middle" font-size="12.5" fill="var(--muted)">${esc(labels[k])}</text>`}).join('')}</svg>`;
+}
+const WD=['ב׳','ג׳','ד׳','ה׳','ו׳','ש׳','א׳']; // python weekday(): Monday=0
+
+/* ---------------- views ---------------- */
+function kpi(label,val,ic,col,soft,delta){return `<div class="card kpi"><div class="h">${label}<span class="ic" style="background:${soft};color:${col}">${i(ic)}</span></div><div class="v num">${val}</div>${delta?`<div class="d">${delta}</div>`:''}</div>`;}
+function banners(){
+  let h='';const m=S.me;const p=new URLSearchParams(location.search);
+  if(p.get('connected')){toast('התיבה חוברה! המערכת סורקת עכשיו את 7 הימים האחרונים');history.replaceState(null,'','/app#'+S.view);}
+  const ce=p.get('connect_error');
+  if(ce){const map={no_google_app:'לעסק עדיין לא הוגדר חיבור ל-Google. מנהל העסק צריך להשלים את ההגדרה במסך "הגדרות".',mailbox_in_other_org:'התיבה הזו כבר מחוברת לעסק אחר.',no_refresh_token:'Google לא החזירה הרשאה קבועה. נסו שוב.',access_denied:'החיבור בוטל.',missing_gmail_permission:'צריך לסמן את ההרשאה לקרוא ולנהל מיילים. נסו שוב וסמנו את כל התיבות.'};
+    h+=`<div class="banner bad">${i('alert')}${esc(map[ce]||('החיבור נכשל: '+ce))}</div>`;history.replaceState(null,'','/app#'+S.view);}
+  if(m.org){
+    const mine=m.mailboxes;
+    if(!mine.length) h+=`<div class="banner info">${i('mail')}<span class="grow">חברו את תיבת ה-Gmail שלכם כדי שהמערכת תתחיל לזהות חשבוניות.</span>${connectBtn()}</div>`;
+    mine.filter(x=>x.status==='error').forEach(x=>{h+=`<div class="banner bad">${i('alert')}<span class="grow">החיבור לתיבה <b class="en">${esc(x.email)}</b> נכשל. חברו אותה מחדש.</span>${connectBtn('חיבור מחדש')}</div>`;});
+    if(!m.org.production) h+=`<div class="banner" style="padding:9px 14px;font-size:13px">${i('shield','width:18px;height:18px')}מצב בדיקה (DRY RUN): המערכת מזהה, מתייגת ושומרת ל-Drive, אבל עוד לא שולחת לרואה החשבון.</div>`;
+  }
+  return h;
+}
+function connectBtn(label){
+  if(S.me.org&&S.me.org.google_app==='none') return isMgr()?`<button class="btn sm" data-v="settings">להגדרת החיבור</button>`:`<span class="chip c-warn">ממתין להגדרת המנהל</span>`;
+  return `<a class="btn sm" href="/oauth/google/start">${i('mail','width:16px;height:16px')}${label||'חיבור Gmail'}</a>`;
+}
+function emptyState(msg){return `<div class="card empty">${msg}</div>`;}
+
+async function vDash(){
+  const d=await api('/api/dashboard');S.cache.review=d.review_pending;
+  const hello=S.me.user.name.split(' ')[0];
+  const week=bars(d.week.map(x=>x.count),d.week.map(x=>WD[x.weekday]),6);
+  const queue=d.review_queue.length?d.review_queue.map(x=>`<div class="it">${ft(x)}<div class="grow" data-open="${x.id}" style="cursor:pointer"><div class="t1">${esc(x.supplier)}</div><div class="t2">${x.invoice_number?'חשבונית '+esc(x.invoice_number)+' · ':''}<span class="num">${money(x.total,x.currency)}</span>${isMgr()&&x.owner?' · אצל '+esc(x.owner):''}</div></div>${score(x)}<button class="btn sm" data-rv="${x.id}" data-d="invoice">${i('check','width:16px;height:16px')}חשבונית</button><button class="btn sm ghost" data-rv="${x.id}" data-d="not_invoice">לא</button></div>`).join(''):'<p class="muted">אין מסמכים לבדיקה.</p>';
+  let h=`<div class="hello"><div><h1>שלום, ${esc(hello)} 👋</h1><p class="muted" style="margin:6px 0 0">${isMgr()?'סיכום של כל הצוות':'המסמכים מהתיבה שלך'} · היום טופלו ${d.today_documents} מסמכים</p></div>
+    <button class="btn" style="margin-right:auto" id="scan">${i('scan')}סרוק עכשיו</button></div>
+   <div class="kpis">${kpi('מסמכים החודש',d.month_documents,'file','#0891B2','var(--c1soft)','עם קובץ מצורף')}${kpi('זוהו כחשבונית',d.month_invoices,'send','var(--c2)','var(--c2soft)',d.auto_rate+'% מהמסמכים')}${kpi('ממתינים לבדיקה',d.review_pending,'clock','var(--warn)','var(--warnsoft)','ודאות בינונית')}${kpi(isMgr()?'שעות שהצוות חסך':'שעות שחסכת',d.hours_saved,'spark','var(--ok)','var(--oksoft)','החודש, הערכה')}</div>`;
+  if(isMgr()&&d.team){
+    const alert=d.team.filter(r=>r.review>=4);
+    if(alert.length) h+=`<div class="banner">${i('alert')}${alert.map(a=>esc(a.name)).join(', ')}: 4 מסמכים או יותר ממתינים לבדיקה.</div>`;
+    h+=`<div class="card pane"><h3>${i('users','color:var(--c2)')}ביצועי הצוות החודש</h3><div class="tbl"><table><thead><tr><th>עובד/ת</th><th>תיבות מייל</th><th>היום</th><th>החודש</th><th>לבדיקה</th><th>אחוז חשבוניות</th></tr></thead><tbody>
+     ${d.team.map(r=>`<tr><td><span style="display:flex;align-items:center;gap:10px">${av(r.name)}<b>${esc(r.name)}</b>${r.role==='manager'?'<span class="chip c-ai">מנהל/ת</span>':''}</span></td><td>${r.mailboxes.length?r.mailboxes.map(m=>`<span class="chip ${m.status==='active'?'c-ok':m.status==='error'?'c-bad':'c-mut'} en">${esc(m.email)}</span>`).join(' '):'<span class="chip c-warn">לא חוברה</span>'}</td><td class="num">${r.today}</td><td class="num">${r.month}</td><td>${r.review?`<span class="chip ${r.review>=4?'c-bad':'c-warn'} num">${r.review}</span>`:'<span class="chip c-ok">0</span>'}</td><td><div style="display:flex;align-items:center;gap:8px"><div class="bar" style="width:100px"><i style="width:${r.auto_rate}%"></i></div><span class="num en">${r.auto_rate}%</span></div></td></tr>`).join('')}
+     </tbody></table></div></div>`;
+  }
+  h+=`<div class="grid2"><div class="card pane"><h3>${i('clock','color:var(--warn)')}${isMgr()?'ממתינים לבדיקה בצוות':'התור שלי לבדיקה'}<span class="chip c-warn num">${d.review_pending}</span></h3><div class="list">${queue}</div></div>
+   <div class="card pane"><h3>${i('chart','color:var(--c2)')}מסמכים ב-7 הימים האחרונים</h3>${week}</div></div>`;
+  return h;
+}
+async function vInbox(){
+  const p=new URLSearchParams({bucket:S.filter,q:S.q,offset:S.offset});
+  const d=await api('/api/emails?'+p);
+  const F=[['','הכל'],['invoice','חשבוניות'],['review','לבדיקה'],['not_invoice','לא חשבונית'],['error','שגיאות']];
+  const rows=d.items.map(x=>`<tr class="click" data-open="${x.id}"><td><b>${esc(x.supplier)}</b><div class="t2">${esc(x.subject).slice(0,70)}</div></td><td class="num">${money(x.total,x.currency)}</td><td>${ft(x)}</td><td>${score(x)}</td><td>${bchip(x.bucket)}</td>${isMgr()?`<td>${esc(x.owner)}</td>`:''}<td class="num muted">${dt(x.received_at)}</td></tr>`).join('');
+  return `<div class="filters">${F.map(([k,l])=>`<button class="${S.filter===k?'on':''}" data-f="${k}">${l}</button>`).join('')}</div>
+   ${d.items.length?`<div class="card tbl"><table><thead><tr><th>ספק / נושא</th><th>סכום</th><th>קובץ</th><th>ודאות AI</th><th>סטטוס</th>${isMgr()?'<th>עובד/ת</th>':''}<th>תאריך</th></tr></thead><tbody>${rows}</tbody></table></div>`:emptyState('לא נמצאו מסמכים.')}
+   <div style="display:flex;gap:10px;align-items:center"><span class="muted num">${d.total} מסמכים</span>${S.offset>0?`<button class="btn sm ghost" data-pg="-50">הקודמים</button>`:''}${S.offset+50<d.total?`<button class="btn sm ghost" data-pg="50">הבאים</button>`:''}</div>`;
+}
+async function vDocs(){
+  const d=await api('/api/invoices');const months=Object.keys(d.months);
+  if(!months.length) return emptyState('עדיין אין חשבוניות. אחרי חיבור התיבה, חשבוניות שיזוהו יופיעו כאן וגם בתיקיית "TotanRomi Invoices" ב-Google Drive שלכם.');
+  S.month=S.month&&d.months[S.month]?S.month:months[0];
+  const cur=d.months[S.month];
+  return `<div class="banner info">${i('drive')}הקבצים נשמרים אוטומטית ב-Google Drive של כל עובד, בתיקייה "TotanRomi Invoices".</div>
+   <div class="filters">${months.map(m=>`<button class="${m===S.month?'on':''}" data-mo="${esc(m)}">${esc(m)} · ${d.months[m].length}</button>`).join('')}</div>
+   <div class="docs">${cur.map(x=>`<div class="card doc" data-open="${x.id}"><div class="thumb"><span style="width:70%"></span><span style="width:92%"></span><span style="width:55%"></span><b>${esc(x.file_type)}</b>${x.drive_file_id?`<em title="נשמר ב-Drive">${i('check','width:15px;height:15px')}</em>`:''}</div><div class="t1" style="margin-top:10px">${esc(x.supplier)}</div><div class="t2">${x.invoice_number?esc(x.invoice_number)+' · ':''}<span class="num">${money(x.total,x.currency)}</span> · ${dt(x.received_at)}</div></div>`).join('')}</div>`;
+}
+async function vSup(){
+  const d=await api('/api/suppliers');
+  if(!d.items.length) return emptyState('עדיין אין ספקים.');
+  return `<div class="card tbl"><table><thead><tr><th>ספק</th><th>מסמכים</th><th>סה״כ (₪)</th><th>אחרון</th></tr></thead><tbody>
+   ${d.items.map(x=>`<tr><td><span style="display:flex;align-items:center;gap:10px">${av(x.name)}<span><b>${esc(x.name)}</b><span class="t2 en" style="display:block">${esc(x.email)}</span></span></span></td><td class="num">${x.count}</td><td class="num">${money(x.total)}</td><td class="num muted">${dt(x.last)}</td></tr>`).join('')}</tbody></table></div>`;
+}
+async function vReports(){
+  const d=await api('/api/reports');
+  const max=Math.max(1,...d.top_suppliers.map(x=>x.total));
+  return `<div class="hello"><div><h1>דוחות</h1><p class="muted" style="margin:6px 0 0">${d.documents} מסמכים נסרקו</p></div><button class="btn" style="margin-right:auto" id="xls">${i('down')}ייצוא Excel לרואה החשבון</button></div>
+   <div class="grid2"><div class="card pane"><h3>ספקים מובילים לפי סכום</h3>${d.top_suppliers.length?d.top_suppliers.map(x=>`<div style="display:grid;grid-template-columns:minmax(90px,160px) 1fr 90px;gap:12px;align-items:center;margin:12px 0"><span class="t1" style="font-size:14px">${esc(x.name)}</span><div class="bar" style="height:14px"><i style="width:${x.total/max*100}%"></i></div><span class="num en" style="text-align:left">${money(x.total)}</span></div>`).join(''):'<p class="muted">אין נתונים עדיין.</p>'}</div>
+   <div class="card pane"><h3>סוגי קבצים</h3>${Object.keys(d.file_types).length?Object.entries(d.file_types).map(([k,v])=>`<div class="set"><span class="en grow">${esc(k)}</span><span class="num">${v}</span></div>`).join(''):'<p class="muted">אין נתונים עדיין.</p>'}</div></div>
+   <div class="card pane"><h3>סכום חשבוניות לפי חודש (באלפי ₪)</h3>${d.monthly.length?bars(d.monthly.map(x=>Math.round(x.total/1000)),d.monthly.map(x=>x.month.slice(5)+'/'+x.month.slice(2,4)),d.monthly.length-1):'<p class="muted">אין נתונים עדיין.</p>'}</div>`;
+}
+async function vTeam(){
+  const d=await api('/api/team');
+  return `<div class="card pane"><h3>${i('plus','color:var(--c2)')}הוספת עובד</h3>
+   <p class="muted" style="margin:0 0 4px">העובד יקבל קישור, ייצור סיסמה ויחבר את תיבת ה-Gmail שלו. מאותו רגע המערכת סורקת את התיבה שלו.</p>
+   <form id="inv" class="row"><div class="field"><label for="in_nm">שם</label><input id="in_nm" required></div><div class="field"><label for="in_em">אימייל (Gmail)</label><input id="in_em" class="en" type="email" required></div>
+   <div class="field" style="max-width:170px"><label for="in_rl">תפקיד</label><select id="in_rl"><option value="employee">עובד/ת</option><option value="manager">מנהל/ת</option></select></div>
+   <button class="btn" style="height:46px">${i('link')}צור קישור הזמנה</button></form>
+   <label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14px"><input type="checkbox" id="in_send" ${S.me.mailboxes.some(m=>m.status==='active')?'checked':'disabled'}> לשלוח את ההזמנה במייל מהתיבה שלי</label><div id="inv_out"></div></div>
+   <div class="card tbl"><table><thead><tr><th>שם</th><th>תפקיד</th><th>תיבות מייל</th><th>מסמכים החודש</th><th></th></tr></thead><tbody>
+   ${d.members.map(m=>`<tr><td><span style="display:flex;align-items:center;gap:10px">${av(m.name)}<span><b>${esc(m.name)}</b><span class="t2 en" style="display:block">${esc(m.email)}</span></span></span></td><td>${m.role==='manager'?'מנהל/ת':'עובד/ת'}</td><td>${m.mailboxes.length?m.mailboxes.map(x=>`<span class="chip ${x.status==='active'?'c-ok':x.status==='error'?'c-bad':'c-mut'} en">${esc(x.email)}</span>`).join(' '):'<span class="chip c-warn">עוד לא חיבר/ה</span>'}</td><td class="num">${m.month}</td><td>${m.user_id!==S.me.user.id?`<button class="btn sm danger" data-deact="${m.user_id}">השבתה</button>`:''}</td></tr>`).join('')}
+   </tbody></table></div>
+   ${d.pending_invites.length?`<div class="card pane"><h3>הזמנות שממתינות</h3>${d.pending_invites.map(x=>`<div class="set"><span class="grow"><b>${esc(x.name)}</b> <span class="en muted">${esc(x.email)}</span></span><span class="t2">בתוקף עד ${dt(x.expires_at)}</span><button class="btn sm ghost" data-cancel="${x.id}">ביטול</button></div>`).join('')}</div>`:''}`;
+}
+async function vSettings(){
+  const d=await api('/api/settings');
+  return `<div class="grid2"><div class="card pane"><h3>${i('cog','color:var(--c2)')}פרטי העסק</h3>
+    <form id="st"><div class="field"><label for="s_nm">שם העסק</label><input id="s_nm" value="${esc(d.name)}"></div>
+    <div class="field"><label for="s_acc">כתובת רואה החשבון (כל העובדים שולחים אליה)</label><input id="s_acc" class="en" type="email" value="${esc(d.accountant_email)}"></div>
+    <div class="field"><label for="s_thr">סף ודאות להעברה אוטומטית: <b id="thrv" class="en">${d.forward_threshold}%</b></label><input id="s_thr" type="range" min="80" max="99" value="${d.forward_threshold}"></div>
+    <div class="field"><label for="s_min">דקות עבודה ידנית לכל מסמך (לחישוב שעות שנחסכו)</label><input id="s_min" type="number" min="0.5" max="60" step="0.5" value="${esc(d.minutes_per_document)}"></div>
+    <div class="set"><span class="grow"><b>לשמור ב-Drive גם מסמכים "לבדיקה"</b><div class="t2">בתיקייה נפרדת "לבדיקה"</div></span><button type="button" class="toggle" role="switch" aria-label="שמירת מסמכים לבדיקה" aria-checked="${d.save_review_to_drive}" data-tg="save_review_to_drive"></button></div>
+    <div class="set"><span class="grow"><b>מייל התראה על כל חשבונית</b><div class="t2">נשלח לבעל התיבה</div></span><button type="button" class="toggle" role="switch" aria-label="התראות" aria-checked="${d.notify_detections}" data-tg="notify_detections"></button></div>
+    <button class="btn" style="margin-top:14px">שמירה</button></form></div>
+   <div class="card pane"><h3>${i('shield','color:var(--c2)')}חיבור ל-Google</h3>
+    <p class="muted" style="margin:0">מומלץ לעסקים עם מייל עסקי (Google Workspace): פרויקט Google משלכם, בחינם, בלי הגבלת עובדים ובלי מסך אזהרה.</p>
+    <ol class="guide"><li>ב-<a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a> צרו פרויקט והפעילו את Gmail API ו-Google Drive API.</li>
+    <li>במסך OAuth consent בחרו <b>Internal</b> (או External + In production).</li>
+    <li>צרו OAuth Client מסוג Web application, והוסיפו את כתובת החזרה:</li></ol>
+    <div class="copy"><span class="en grow">${esc(d.redirect_uri)}</span><button type="button" class="btn sm ghost" data-copy="${esc(d.redirect_uri)}">${i('copy','width:15px;height:15px')}העתקה</button></div>
+    <form id="gg"><div class="field"><label for="g_id">Client ID</label><input id="g_id" class="en" value="${esc(d.google_client_id)}" autocomplete="off"></div>
+    <div class="field"><label for="g_sec">Client Secret ${d.google_client_secret_set?'(שמור. השאירו ריק כדי לא לשנות)':''}</label><input id="g_sec" class="en" type="password" autocomplete="off"></div>
+    <button class="btn" style="margin-top:14px">שמירת חיבור Google</button></form>
+    <p class="t2" style="margin-top:12px">${d.google_client_id?'העסק משתמש בפרויקט Google משלו.':d.shared_app_available?'כרגע העסק משתמש בחיבור המשותף של TotanRomi (עד 100 תיבות בסך הכל, עם מסך אזהרה של Google).':'עדיין אין חיבור Google. השלימו את השלבים למעלה.'}</p></div></div>
+   <div class="card pane"><h3>${i('send','color:var(--c2)')}מצב העברה לרואה החשבון</h3><p style="margin:0">${d.production?'<span class="chip c-ok">פעיל</span> חשבוניות מעל הסף נשלחות לרואה החשבון.':'<span class="chip c-warn">מצב בדיקה</span> המערכת עוד לא שולחת מיילים. ההפעלה נעשית על ידי TotanRomi, אחרי תקופת בדיקה ובאישורכם.'}</p></div>`;
+}
+async function vAdmin(){
+  const d=await api('/api/admin/orgs');
+  return `${!S.me.org?`<div class="banner info">${i('building')}<span class="grow">רוצה להשתמש במערכת גם לעסק שלך? צור עסק ותהיה המנהל שלו.</span><button class="btn sm" id="myorg">יצירת העסק שלי</button></div>`:''}
+   <div class="card pane"><h3>${i('plus','color:var(--c2)')}לקוח חדש</h3><p class="muted" style="margin:0">צור קישור הרשמה ושלח אותו ללקוח. הלקוח יירשם כמנהל ויוסיף את העובדים שלו.</p>
+   <form id="sl" class="row"><div class="field"><label for="sl_note">הערה (שם הלקוח)</label><input id="sl_note"></div><button class="btn" style="height:46px">${i('link')}צור קישור הרשמה</button></form><div id="sl_out"></div></div>
+   <div class="kpis">${kpi('לקוחות',d.orgs.length,'building','var(--c2)','var(--c2soft)','')}${kpi('תיבות מחוברות',d.orgs.reduce((a,o)=>a+o.mailboxes,0),'mail','#0891B2','var(--c1soft)','')}${kpi('מסמכים החודש',d.orgs.reduce((a,o)=>a+o.month_documents,0),'file','var(--ok)','var(--oksoft)','')}${kpi('תיבות עם תקלה',d.orgs.reduce((a,o)=>a+o.mailbox_errors,0),'alert','var(--bad)','var(--badsoft)','')}</div>
+   ${d.global_production?'':`<div class="banner">${i('shield')}המערכת כולה במצב DRY RUN (משתני הסביבה ב-Railway). גם לקוח שמסומן "העברה פעילה" לא יקבל שליחה עד שתשנה אותם.</div>`}
+   <div class="card tbl"><table><thead><tr><th>לקוח</th><th>מנהל</th><th>משתמשים</th><th>תיבות</th><th>מסמכים החודש</th><th>Google</th><th>העברה לרו״ח</th><th></th></tr></thead><tbody>
+   ${d.orgs.map(o=>`<tr><td><b>${esc(o.name)}</b><div class="t2">${dt(o.created_at)}</div></td><td>${esc(o.manager)}<div class="t2 en">${esc(o.manager_email)}</div></td><td class="num">${o.users}</td><td class="num">${o.mailboxes}${o.mailbox_errors?` <span class="chip c-bad">${o.mailbox_errors} תקלות</span>`:''}</td><td class="num">${o.month_documents}</td><td><span class="chip c-mut">${o.google_app==='org'?'פרויקט של הלקוח':'משותף'}</span></td>
+   <td>${o.production_enabled?'<span class="chip c-ok">פעיל</span>':'<span class="chip c-warn">DRY RUN</span>'}</td><td style="white-space:nowrap"><button class="btn sm ghost" data-prod="${o.id}" data-on="${o.production_enabled?0:1}">${o.production_enabled?'חזרה ל-DRY RUN':'הפעלת העברה'}</button> <button class="btn sm ${o.active?'danger':'ghost'}" data-act="${o.id}" data-on="${o.active?0:1}">${o.active?'השהיה':'הפעלה'}</button></td></tr>`).join('')||`<tr><td colspan="8" class="muted">עדיין אין לקוחות.</td></tr>`}
+   </tbody></table></div>`;
+}
+
+/* ---------------- detail drawer ---------------- */
+async function openDoc(id){
+  let d;try{d=await api('/api/emails/'+id)}catch(x){toast(x.message);return;}
+  const b=d.bucket, done=b==='invoice'?(d.forward&&d.forward.state==='SENT'?6:5):b==='review'?4:2;
+  const steps=[['mail','מייל נכנס',dtt(d.received_at)],['scan','זיהוי AI',`ודאות ${d.score}%`],['shield','בדיקה',d.invoice_number?('חשבונית '+d.invoice_number):'פרטי המסמך נקראו'],['tag','תיוג ב-Gmail',b==='review'?'Invoice/Review':b==='invoice'?'Invoice/Detected':'Invoice/Not-Invoice'],['drive','שמירה ב-Drive',d.drive_file_id?'נשמר':'—'],['send','העברה לרואה החשבון',d.forward?(d.forward.state==='SENT'?'נשלח':d.forward.state):(d.dry_run?'מצב בדיקה – לא נשלח':'—')]];
+  $('layer').innerHTML=`<div class="scrim" data-close="1"></div><aside class="drawer" role="dialog" aria-label="פרטי מסמך">
+   <div style="display:flex;align-items:center;gap:10px"><h2 style="font-size:20px" class="grow">${esc(d.supplier)}</h2><button class="btn ghost sm" data-close="1" aria-label="סגירה">${i('x','width:16px;height:16px')}</button></div>
+   <p class="muted" style="margin:4px 0 14px">${esc(d.subject)}<br><span class="en">${esc(d.sender)}</span>${d.owner?' · תיבה של '+esc(d.owner):''}</p>
+   <div style="display:flex;gap:8px;flex-wrap:wrap">${bchip(b)}${score(d)}${d.total!=null?`<span class="chip c-mut num">${money(d.total,d.currency)}</span>`:''}${ft(d)}</div>
+   <div class="card pane" style="margin-top:16px"><h3>${i('spark','color:var(--c2)')}למה ה-AI החליט כך</h3><ul style="margin:0;padding-right:18px">${d.reasons.map(r=>`<li style="margin:5px 0">${esc(r)}</li>`).join('')||'<li>אין פירוט</li>'}</ul></div>
+   <div class="card pane" style="margin-top:14px"><h3>${i('scan','color:#0891B2')}התהליך האוטומטי</h3>${steps.map(([ic,l,s],k)=>`<div class="step ${k<done?'':'pend'}"><span class="b">${i(ic,'width:18px;height:18px')}</span><div><div class="t1">${l}</div><div class="t2">${esc(s)}</div></div></div>`).join('')}</div>
+   ${b==='review'?`<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap"><button class="btn" data-rv="${d.id}" data-d="invoice">${i('check')}זו חשבונית</button><button class="btn ghost" data-rv="${d.id}" data-d="not_invoice">זו לא חשבונית</button></div>`:''}
+   <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap"><a class="btn ghost" href="${esc(d.gmail_link)}" target="_blank" rel="noopener">${i('mail')}פתיחה ב-Gmail</a>${d.drive_file_id?`<a class="btn ghost" href="https://drive.google.com/file/d/${encodeURIComponent(d.drive_file_id)}/view" target="_blank" rel="noopener">${i('drive')}הקובץ ב-Drive</a>`:''}</div></aside>`;
+}
+
+/* ---------------- events ---------------- */
+document.addEventListener('click',async e=>{
+  const t=e.target;
+  const rv=t.closest('[data-rv]');if(rv){rv.disabled=true;try{await api(`/api/emails/${rv.dataset.rv}/review`,{json:{decision:rv.dataset.d}});$('layer').innerHTML='';toast(rv.dataset.d==='invoice'?'סומן כחשבונית':'סומן כ"לא חשבונית"');render();}catch(x){toast(x.message);rv.disabled=false}return;}
+  const o=t.closest('[data-open]');if(o){openDoc(o.dataset.open);return;}
+  if(t.closest('[data-close]')){$('layer').innerHTML='';return;}
+  const f=t.closest('[data-f]');if(f){S.filter=f.dataset.f;S.offset=0;render();return;}
+  const pg=t.closest('[data-pg]');if(pg){S.offset=Math.max(0,S.offset+Number(pg.dataset.pg));render();return;}
+  const mo=t.closest('[data-mo]');if(mo){S.month=mo.dataset.mo;render();return;}
+  const cp=t.closest('[data-copy]');if(cp){copyText(cp.dataset.copy);return;}
+  const tg=t.closest('[data-tg]');if(tg){const v=tg.getAttribute('aria-checked')!=='true';tg.setAttribute('aria-checked',v);try{await api('/api/settings',{method:'PUT',json:{[tg.dataset.tg]:v}});toast('נשמר')}catch(x){toast(x.message)}return;}
+  if(t.closest('#scan')){try{await api('/api/scan',{json:{}});toast('הסריקה התחילה. רעננו בעוד דקה')}catch(x){toast(x.message)}return;}
+  if(t.closest('#xls')){window.location='/api/reports/excel';return;}
+  const de=t.closest('[data-deact]');if(de){if(de.dataset.sure){try{await api(`/api/team/${de.dataset.deact}/active`,{json:{active:false}});toast('העובד הושבת');render()}catch(x){toast(x.message)}}else{de.dataset.sure=1;de.textContent='לחצו שוב לאישור';}return;}
+  const ca=t.closest('[data-cancel]');if(ca){try{await api(`/api/team/invites/${ca.dataset.cancel}/cancel`,{json:{}});render()}catch(x){toast(x.message)}return;}
+  const pr=t.closest('[data-prod]');if(pr){
+    if(pr.dataset.on==='1'&&!pr.dataset.sure){pr.dataset.sure=1;pr.textContent='לחצו שוב: שליחה אמיתית לרו״ח';return;}
+    try{await api(`/api/admin/orgs/${pr.dataset.prod}`,{json:{production_enabled:pr.dataset.on==='1',confirm:'PRODUCTION'}});toast('עודכן');render()}catch(x){toast(x.message)}return;}
+  const ac=t.closest('[data-act]');if(ac){try{await api(`/api/admin/orgs/${ac.dataset.act}`,{json:{active:ac.dataset.on==='1'}});render()}catch(x){toast(x.message)}return;}
+  if(t.closest('#myorg')){const name=(S.me.user.name||'')+' - העסק שלי';try{await api('/api/admin/my-org',{json:{name}});await loadMe();go('settings');toast('העסק נוצר. עדכן את השם והגדרות')}catch(x){toast(x.message)}return;}
+});
+document.addEventListener('submit',async e=>{
+  const f=e.target;
+  if(f.id==='inv'){e.preventDefault();try{const r=await api('/api/team/invite',{json:{name:$('in_nm').value,email:$('in_em').value,role:$('in_rl').value,send_email:$('in_send').checked}});
+    $('inv_out').innerHTML=`<div class="copy"><span class="en grow">${esc(r.link)}</span><button type="button" class="btn sm ghost" data-copy="${esc(r.link)}">${i('copy','width:15px;height:15px')}העתקה</button></div><p class="t2">${r.sent?'ההזמנה נשלחה במייל.':'שלחו את הקישור לעובד (וואטסאפ/מייל). בתוקף ל-7 ימים.'}</p>`;f.reset();}catch(x){toast(x.message)}}
+  if(f.id==='st'){e.preventDefault();try{await api('/api/settings',{method:'PUT',json:{name:$('s_nm').value,accountant_email:$('s_acc').value,forward_threshold:Number($('s_thr').value),minutes_per_document:Number($('s_min').value)}});await loadMe();toast('ההגדרות נשמרו')}catch(x){toast(x.message)}}
+  if(f.id==='gg'){e.preventDefault();const j={google_client_id:$('g_id').value};if($('g_sec').value)j.google_client_secret=$('g_sec').value;try{await api('/api/settings',{method:'PUT',json:j});await loadMe();toast('החיבור נשמר. עכשיו כל עובד יכול לחבר את התיבה שלו');render()}catch(x){toast(x.message)}}
+  if(f.id==='sl'){e.preventDefault();try{const r=await api('/api/admin/signup-link',{json:{note:$('sl_note').value}});$('sl_out').innerHTML=`<div class="copy"><span class="en grow">${esc(r.link)}</span><button type="button" class="btn sm ghost" data-copy="${esc(r.link)}">${i('copy','width:15px;height:15px')}העתקה</button></div><p class="t2">בתוקף ל-14 יום, לשימוש חד-פעמי.</p>`}catch(x){toast(x.message)}}
+});
+document.addEventListener('input',e=>{if(e.target.id==='s_thr')$('thrv').textContent=e.target.value+'%';});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')$('layer').innerHTML='';});
+
+/* ---------------- render / boot ---------------- */
+const VIEWS={dash:vDash,inbox:vInbox,docs:vDocs,sup:vSup,reports:vReports,team:vTeam,settings:vSettings,admin:vAdmin};
+async function render(){
+  const allowed=navItems().map(x=>x[0]);
+  if(!allowed.includes(S.view)) S.view=allowed[0]||'admin';
+  renderShell();
+  const main=$('main');
+  const top=banners();
+  main.innerHTML=top+'<div class="empty">טוען…</div>';
+  try{main.innerHTML=top+await VIEWS[S.view]();renderShell();}
+  catch(x){if(x.message!=='login')main.innerHTML=top+`<div class="banner bad">${i('alert')}${esc(x.message)}</div>`;}
+}
+async function loadMe(){S.me=await api('/api/me');}
+async function boot(){
+  const path=location.pathname, tok=new URLSearchParams(location.search).get('t');
+  if(tok&&['/setup','/signup','/join'].includes(path)){showTokenForm(path.slice(1),tok);return;}
+  try{await loadMe();}catch(x){if(x.message!=='login')authCard(`<p class="err">${esc(x.message)}</p>`);else showLogin();return;}
+  $('auth').hidden=true;$('app').hidden=false;
+  const h=location.hash.slice(1);S.view=TITLES[h]?h:(S.me.org?'dash':'admin');
+  render();
+}
+boot();
+</script>
+</body>
+</html>

@@ -59,6 +59,8 @@ class Database:
         self._sessionmaker = sessionmaker(bind=self.engine, expire_on_commit=False)
 
     def create_all(self) -> None:
+        from ..saas import models as _tenant_models  # noqa: F401  (registers tenant tables)
+
         Base.metadata.create_all(self.engine)
         self._add_missing_columns()
 

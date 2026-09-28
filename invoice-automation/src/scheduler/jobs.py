@@ -18,6 +18,10 @@ def build_scheduler(app_ctx) -> BackgroundScheduler:
                                                              "misfire_grace_time": 3600})
     sched.add_job(app_ctx.safe_poll, IntervalTrigger(seconds=s.poll_interval_seconds, timezone=s.tz),
                   id="poll", name="Gmail polling")
+    if hasattr(app_ctx, "safe_saas_poll"):
+        sched.add_job(app_ctx.safe_saas_poll,
+                      IntervalTrigger(seconds=max(60, s.saas_poll_interval_seconds), timezone=s.tz),
+                      id="saas_poll", name="Web-app mailboxes polling")
     sched.add_job(app_ctx.safe_daily_report,
                   CronTrigger(hour=s.report_hour, minute=s.report_minute, timezone=s.tz),
                   id="daily_report", name="Daily Excel report")

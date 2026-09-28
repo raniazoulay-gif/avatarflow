@@ -61,8 +61,11 @@ class EmailStatus:
     FORWARD_BLOCKED = "FORWARD_BLOCKED"
     FORWARDED = "FORWARDED"
     ERROR = "ERROR"
+    # Set by a person in the web app (review queue)
+    CONFIRMED_INVOICE = "CONFIRMED_INVOICE"
 
     FINAL = {
+        CONFIRMED_INVOICE,
         NO_ATTACHMENTS, NOT_INVOICE, REVIEW, NEW_SUPPLIER_REVIEW,
         DRY_RUN_WOULD_FORWARD, FORWARD_BLOCKED, FORWARDED,
     }
@@ -91,6 +94,11 @@ class Email(Base):
     rule_score: Mapped[float | None] = mapped_column(Float)
     ai_score: Mapped[float | None] = mapped_column(Float)
     final_score: Mapped[float | None] = mapped_column(Float)
+    # Multi-tenant (NULL = the original single-account setup from env variables)
+    org_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    mailbox_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    reviewed_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
     attachments: Mapped[list[Attachment]] = relationship(
         back_populates="email", cascade="all, delete-orphan"
@@ -127,6 +135,7 @@ class Attachment(Base):
     classification_json: Mapped[str | None] = mapped_column(Text)
     error: Mapped[str | None] = mapped_column(Text)
     document_text: Mapped[str | None] = mapped_column(Text)  # only if STORE_DOCUMENT_TEXT
+    drive_file_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     email: Mapped[Email] = relationship(back_populates="attachments")
 

@@ -51,6 +51,10 @@ class AttachmentOutcome:
     error: str | None = None
     reused: bool = False
     sha256: str | None = None
+    # In-memory only (never serialised): used to save the file to Drive.
+    data: bytes | None = None
+    key: str | None = None
+    mime_type: str | None = None
 
 
 class Processor:
@@ -64,6 +68,9 @@ class Processor:
         forwarder: Forwarder,
         labels: LabelManager | None,
         notifier=None,
+        *,
+        tenant: dict | None = None,
+        saver=None,
     ) -> None:
         self.settings = settings
         self.db = db
@@ -73,6 +80,10 @@ class Processor:
         self.forwarder = forwarder
         self.labels = labels
         self.notifier = notifier
+        # {"org_id": .., "mailbox_id": ..} for mailboxes connected in the web app
+        self.tenant = tenant or {}
+        # callable(repo, email_row, parsed, outcomes, review: bool) - saves files to Drive
+        self.saver = saver
 
     # ------------------------------------------------------------------
     def process_many(self, message_ids: list[str], *, is_backfill: bool = False) -> dict[str, str]:
@@ -120,7 +131,7 @@ class Processor:
             message_id=p.message_id, thread_id=p.thread_id, sender_name=p.sender_name[:500],
             sender_email=p.sender_email[:500], subject=(p.subject or "")[:1000],
             received_at=p.received_at, status=EmailStatus.PENDING, attempts=attempts,
-            is_backfill=is_backfill, dry_run=dry, error=None,
+            is_backfill=is_backfill, dry_run=dry, error=None, **self.tenant,
         )
         filenames = [a.filename for a in p.attachments]
         relevant = [a for a in p.attachments if is_relevant(a.filename, a.mime_type)]
@@ -205,6 +216,14 @@ class Processor:
             e.possible_invoice, e.possible_invoice_reason = possible_invoice(
                 p.subject, p.sender_name, p.sender_email, filenames, p.body_text)
 
+        if self.saver is not None and ai_says_invoice and is_inv:
+            review = e.status in (EmailStatus.REVIEW, EmailStatus.NEW_SUPPLIER_REVIEW)
+            try:
+                self.saver(repo, e, p, [o for o in ok if o.final_score >= s.review_threshold],
+                           review)
+            except Exception as exc:  # saving is best-effort; never fails the email
+                log.warning("Drive save failed for %s: %s", p.message_id, type(exc).__name__)
+
         if is_inv:
             repo.incr_state("total_invoices")
         if decision.would_forward:
@@ -267,7 +286,8 @@ class Processor:
                 existing is None or prior.id != existing.id):
             saved = json.loads(prior.classification_json)
             out = AttachmentOutcome(**{**saved, "filename": a.filename, "reused": True,
-                                       "sha256": sha})
+                                       "sha256": sha, "data": data, "key": a.key[:500],
+                                       "mime_type": a.mime_type})
             repo.add_attachment(e, **base, processed=True, extraction_method="reused",
                                 text_chars=prior.text_chars, is_invoice=prior.is_invoice,
                                 final_score=prior.final_score, rule_score=prior.rule_score,
@@ -311,10 +331,9 @@ class Processor:
             ai=ai_result.model_dump() if ai_result else None, rules=rules_dict, sha256=sha,
         )
         saved = asdict(out)
-        saved.pop("filename")
-        saved.pop("reused")
-        saved.pop("error")
-        saved.pop("sha256")
+        for k in ("filename", "reused", "error", "sha256", "data", "key", "mime_type"):
+            saved.pop(k)
+        out.data, out.key, out.mime_type = data, a.key[:500], a.mime_type
         repo.add_attachment(
             e, **base, processed=True, extraction_method=ext.method, text_chars=len(ext.text),
             is_invoice=score >= s.review_threshold, final_score=score, rule_score=rules.score,
@@ -333,7 +352,7 @@ class Processor:
         try:
             with self.db.repo() as repo:
                 prev = repo.get_email(message_id)
-                fields: dict = dict(message_id=message_id, status=EmailStatus.ERROR,
+                fields: dict = dict(message_id=message_id, status=EmailStatus.ERROR, **self.tenant,
                                     error=error[:2000], processed_at=now_utc(),
                                     attempts=attempts or ((prev.attempts if prev else 0) + 1),
                                     dry_run=not self.settings.forward_switches_on)

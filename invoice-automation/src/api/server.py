@@ -85,4 +85,9 @@ def create_app(ctx) -> FastAPI:
         ctx.watcher.on_push_notification()
         return {"ok": True}
 
+    if getattr(ctx, "saas", None) is not None:
+        from ..saas.api import mount
+
+        mount(app, ctx)
+
     return app

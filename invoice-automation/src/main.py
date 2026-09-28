@@ -101,6 +101,7 @@ def cmd_run(s: Settings, _args) -> int:
                 with ctx.db.repo() as repo:
                     repo.set_state("backfill_done_days", str(s.backfill_days))
         ctx.safe_poll()
+    ctx.bootstrap_admin()
     sched = build_scheduler(ctx)
     sched.start()
     for job in sched.get_jobs():

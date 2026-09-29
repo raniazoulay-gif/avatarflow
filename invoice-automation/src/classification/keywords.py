@@ -65,6 +65,26 @@ CURRENCY_PATTERNS = {
     "GBP": [r"£", r"\bGBP\b"],
 }
 
+# Documents that look like an invoice (date, amount, company details) but are not
+# one. When one of these appears and the document never calls itself an invoice /
+# receipt, it is NOT an invoice - whatever the other indicators say.
+NON_INVOICE_PATTERNS = [
+    r"אישור\s*(?:על\s*)?(?:ביצוע\s*)?תשלום", r"פרמי(?:ה|ית|ת)", r"פוליס(?:ה|ת)",
+    r"אישור\s*(?:קיום\s*)?ביטוח", r"הצעת\s*מחיר", r"תעודת\s*משלוח", r"דף\s*חשבון",
+    r"תדפיס\s*(?:חשבון|תנועות)", r"תלוש\s*(?:שכר|משכורת)", r"אישור\s*ניכוי",
+    r"אישור\s*הזמנה", r"כרטיס\s*(?:טיסה|עלייה|עליה)", r"דרישת\s*תשלום",
+    r"payment\s+confirmation", r"proof\s+of\s+payment", r"price\s+quot", r"\bquotation\b",
+    r"delivery\s+note", r"packing\s+slip", r"(?:bank|account)\s+statement",
+    r"statement\s+of\s+account", r"pay\s*slip", r"order\s+confirmation",
+    r"booking\s+confirmation", r"boarding\s+pass", r"\be-?ticket\b",
+    r"insurance\s+(?:policy|certificate)", r"certificate\s+of\s+insurance", r"pro-?\s*forma",
+]
+# The document names itself an invoice / receipt (stronger than a passing mention).
+STRONG_INVOICE_PATTERNS = [
+    r"חשבוני(?:ת|ות)", r"(?<!ת)קבל(?:ה|ות)", r"invoice", r"receipt", r"credit\s+note",
+    r"számla", r"factur", r"fattura", r"faktura", r"rechnung", r"\bbill\b",
+]
+
 # Lighter signals used for the "possible invoice" false-negative check on
 # subject / filename / sender.
 HINT_PATTERNS = [

@@ -142,7 +142,7 @@ const av=(name)=>{name=String(name||'?');let h=0;for(const c of name)h=(h*31+c.c
 const money=(v,c)=>v==null?'':((!c||['ILS','NIS'].includes(String(c).toUpperCase()))?'₪':esc(c)+' ')+Number(v).toLocaleString('en-US',{maximumFractionDigits:0});
 const dt=s=>{if(!s)return'';const d=new Date(s);return d.toLocaleDateString('he-IL',{day:'numeric',month:'numeric'})};
 const dtt=s=>{if(!s)return'';const d=new Date(s);return d.toLocaleString('he-IL',{day:'numeric',month:'numeric',hour:'2-digit',minute:'2-digit'})};
-const BUCKET={no_attachments:['בלי קובץ','c-mut'],invoice:['חשבונית','c-ok'],review:['לבדיקה','c-warn'],not_invoice:['לא חשבונית','c-mut'],error:['שגיאה','c-bad'],pending:['בתהליך','c-mut']};
+const BUCKET={duplicate:['כפילות','c-ai'],no_attachments:['בלי קובץ','c-mut'],invoice:['חשבונית','c-ok'],review:['לבדיקה','c-warn'],not_invoice:['לא חשבונית','c-mut'],error:['שגיאה','c-bad'],pending:['בתהליך','c-mut']};
 const bchip=b=>{const x=BUCKET[b]||BUCKET.pending;return `<span class="chip ${x[1]}">${x[0]}</span>`};
 const score=d=>`<span class="chip c-ai">${i('spark','width:14px;height:14px')}<span class="en num">${Number(d.score)|0}%</span></span>`;
 const ft=d=>`<span class="ft ${esc(d.file_type)}">${esc(d.file_type)}</span>`;
@@ -338,7 +338,7 @@ async function vDash(){
 async function vInbox(){
   const p=new URLSearchParams({bucket:S.filter,q:S.q,offset:S.offset});
   const d=await api('/api/emails?'+p);
-  const F=[['','כל המסמכים'],['invoice','חשבוניות'],['review','לבדיקה'],['not_invoice','לא חשבונית'],['error','שגיאות'],['no_attachments','מיילים בלי קובץ']];
+  const F=[['','כל המסמכים'],['invoice','חשבוניות'],['review','לבדיקה'],['not_invoice','לא חשבונית'],['duplicate','כפילויות'],['error','שגיאות'],['no_attachments','מיילים בלי קובץ']];
   const rows=d.items.map(x=>`<tr class="click" data-open="${x.id}"><td><b>${esc(x.supplier)}</b><div class="t2">${esc(x.subject).slice(0,70)}</div></td><td class="num">${money(x.total,x.currency)}</td><td>${ft(x)}</td><td>${score(x)}</td><td>${bchip(x.bucket)}</td>${isMgr()?`<td>${esc(x.owner)}</td>`:''}<td class="num muted">${dt(x.received_at)}</td></tr>`).join('');
   return `<div class="filters">${F.map(([k,l])=>`<button class="${S.filter===k?'on':''}" data-f="${k}">${l}</button>`).join('')}</div>
    ${d.items.length?`<div class="card tbl"><table><thead><tr><th>ספק / נושא</th><th>סכום</th><th>קובץ</th><th>ודאות AI</th><th>סטטוס</th>${isMgr()?'<th>עובד/ת</th>':''}<th>תאריך</th></tr></thead><tbody>${rows}</tbody></table></div>`:emptyState('לא נמצאו מסמכים.')}
@@ -473,15 +473,18 @@ async function scanProgress(){
 /* ---------------- detail drawer ---------------- */
 async function openDoc(id){
   let d;try{d=await api('/api/emails/'+id)}catch(x){toast(x.message);return;}
-  const b=d.bucket, done=b==='invoice'?(d.forward&&d.forward.state==='SENT'?6:5):b==='review'?4:2;
-  const steps=[['mail','מייל נכנס',dtt(d.received_at)],['scan','זיהוי AI',`ודאות ${d.score}%`],['shield','בדיקה',d.invoice_number?('חשבונית '+d.invoice_number):'פרטי המסמך נקראו'],['tag','תיוג ב-Gmail',b==='review'?'Invoice/Review':b==='invoice'?'Invoice/Detected':'Invoice/Not-Invoice'],['drive','שמירה ב-Drive',d.drive_file_id?'נשמר':'—'],['send','העברה לרואה החשבון',d.forward?(d.forward.state==='SENT'?'נשלח':d.forward.state):(d.dry_run?'מצב בדיקה – לא נשלח':'—')]];
+  const b=d.bucket, done=b==='invoice'?(d.forward&&d.forward.state==='SENT'?6:5):b==='duplicate'?5:b==='review'?4:2;
+  const steps=[['mail','מייל נכנס',dtt(d.received_at)],['scan','זיהוי AI',`ודאות ${d.score}%`],['shield','בדיקה',d.invoice_number?('חשבונית '+d.invoice_number):'פרטי המסמך נקראו'],['tag','תיוג ב-Gmail',b==='review'?'Invoice/Review':(b==='invoice'||b==='duplicate')?'Invoice/Detected':'Invoice/Not-Invoice'],['drive','שמירה ב-Drive',d.drive_file_id?'נשמר':'—'],['send','העברה לרואה החשבון',d.forward?(d.forward.state==='SENT'?'נשלח':d.forward.state):(d.dry_run?'מצב בדיקה – לא נשלח':'—')]];
   $('layer').innerHTML=`<div class="scrim" data-close="1"></div><aside class="drawer" role="dialog" aria-label="פרטי מסמך">
    <div style="display:flex;align-items:center;gap:10px"><h2 style="font-size:20px" class="grow">${esc(d.supplier)}</h2><button class="btn ghost sm" data-close="1" aria-label="סגירה">${i('x','width:16px;height:16px')}</button></div>
    <p class="muted" style="margin:4px 0 14px">${esc(d.subject)}<br><span class="en">${esc(d.sender)}</span>${d.owner?' · תיבה של '+esc(d.owner):''}</p>
    <div style="display:flex;gap:8px;flex-wrap:wrap">${bchip(b)}${score(d)}${d.total!=null?`<span class="chip c-mut num">${money(d.total,d.currency)}</span>`:''}${ft(d)}</div>
+   ${b==='duplicate'?`<div class="banner" style="margin-top:16px">${i('copy')}<span class="grow">זו חשבונית, אבל אותו קובץ בדיוק כבר התקבל${d.duplicate_of?` ב-${dt(d.duplicate_of.received_at)}${d.duplicate_of.owner?' בתיבה של '+esc(d.duplicate_of.owner):''}`:''}. היא נשמרה, ולא תישלח לרואה החשבון פעם שנייה.</span>${d.duplicate_of&&d.duplicate_of.id?`<button class="btn sm ghost" data-open="${d.duplicate_of.id}">למייל המקורי</button>`:''}</div>`:''}
    <div class="card pane" style="margin-top:16px"><h3>${i('spark','color:var(--c2)')}למה ה-AI החליט כך</h3><ul style="margin:0;padding-right:18px">${d.reasons.map(r=>`<li style="margin:5px 0">${esc(r)}</li>`).join('')||'<li>אין פירוט</li>'}</ul></div>
    <div class="card pane" style="margin-top:14px"><h3>${i('scan','color:#0891B2')}התהליך האוטומטי</h3>${steps.map(([ic,l,s],k)=>`<div class="step ${k<done?'':'pend'}"><span class="b">${i(ic,'width:18px;height:18px')}</span><div><div class="t1">${l}</div><div class="t2">${esc(s)}</div></div></div>`).join('')}</div>
-   ${b==='review'?`<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap"><button class="btn" data-rv="${d.id}" data-d="invoice">${i('check')}זו חשבונית</button><button class="btn ghost" data-rv="${d.id}" data-d="not_invoice">זו לא חשבונית</button></div>`:''}
+   ${b==='review'?`<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap"><button class="btn" data-rv="${d.id}" data-d="invoice">${i('check')}זו חשבונית</button><button class="btn ghost" data-rv="${d.id}" data-d="not_invoice">זו לא חשבונית</button></div>`
+     :(b==='invoice'||b==='duplicate')&&!(d.forward&&d.forward.state==='SENT')?`<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap"><button class="btn ghost" data-rv="${d.id}" data-d="not_invoice">${i('x')}זו לא חשבונית</button></div>`
+     :b==='not_invoice'?`<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap"><button class="btn ghost" data-rv="${d.id}" data-d="invoice">${i('check')}זו כן חשבונית</button></div>`:''}
    <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap"><a class="btn ghost" href="${esc(d.gmail_link)}" target="_blank" rel="noopener">${i('mail')}פתיחה ב-Gmail</a>${d.drive_file_id?`<a class="btn ghost" href="https://drive.google.com/file/d/${encodeURIComponent(d.drive_file_id)}/view" target="_blank" rel="noopener">${i('drive')}הקובץ ב-Drive</a>`:''}</div></aside>`;
 }
 

@@ -726,10 +726,18 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
             e = Q.get_email(repo.s, scope(repo, u), eid)
             if e is None:
                 raise HTTPException(404, "not found")
-            if e.status not in Q.REVIEW:
-                raise HTTPException(409, "המסמך כבר טופל")
+            # A person may correct any decision - except a file already sent.
+            if e.status == EmailStatus.FORWARDED or (e.forward is not None and
+                                                     e.forward.state in ("SENT", "SENDING")):
+                raise HTTPException(409, "המסמך כבר נשלח לרואה החשבון")
+            if e.status in (EmailStatus.ERROR, EmailStatus.PENDING, EmailStatus.NO_ATTACHMENTS):
+                raise HTTPException(409, "אי אפשר לסמן מסמך בלי קובץ שנקרא")
+            if e.status == EmailStatus.DUPLICATE and decision == "invoice":
+                raise HTTPException(409, "זו כפילות של חשבונית שכבר נקלטה")
             e.status = EmailStatus.CONFIRMED_INVOICE if decision == "invoice" \
                 else EmailStatus.NOT_INVOICE
+            if decision == "not_invoice":
+                e.would_forward = False
             e.reviewed_by, e.reviewed_at = u.id, datetime.now(UTC)
             mailbox_id, message_id = e.mailbox_id, e.message_id
         # Mirror the decision as a Gmail label (best effort, labels are only added).

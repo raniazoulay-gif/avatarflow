@@ -20,9 +20,11 @@ NOT_INV = {EmailStatus.NOT_INVOICE}
 
 BUCKET = {**{s: "invoice" for s in DETECTED}, **{s: "review" for s in REVIEW},
           EmailStatus.NOT_INVOICE: "not_invoice", EmailStatus.ERROR: "error",
-          EmailStatus.PENDING: "pending", EmailStatus.NO_ATTACHMENTS: "no_attachments"}
+          EmailStatus.PENDING: "pending", EmailStatus.NO_ATTACHMENTS: "no_attachments",
+          EmailStatus.DUPLICATE: "duplicate"}
 FILTERS = {"invoice": DETECTED, "review": REVIEW, "not_invoice": NOT_INV,
-           "error": {EmailStatus.ERROR}, "no_attachments": {EmailStatus.NO_ATTACHMENTS}}
+           "error": {EmailStatus.ERROR}, "no_attachments": {EmailStatus.NO_ATTACHMENTS},
+           "duplicate": {EmailStatus.DUPLICATE}}
 
 
 @dataclass
@@ -131,7 +133,8 @@ def email_detail(s: Session, scope: Scope, e: Email) -> dict:
         "sender_name": e.sender_name or "",
         "invoice_date": c.invoice_date if c else None,
         "vat": c.vat if c else None,
-        "reasons": [r.strip() for r in reason.split("|") if r.strip()][:6],
+        "reasons": [r.strip() for r in reason.split("|") if r.strip()
+                    and not r.strip().startswith(("Duplicate invoice content", "כפילות:"))][:6],
         "attachments": [{"filename": a.filename, "score": round((a.final_score or 0) * 100),
                          "drive_file_id": a.drive_file_id, "error": a.error}
                         for a in e.attachments or []],
@@ -140,8 +143,34 @@ def email_detail(s: Session, scope: Scope, e: Email) -> dict:
         "processed_at": e.processed_at.isoformat() if e.processed_at else None,
         "gmail_link": f"https://mail.google.com/mail/u/0/#all/{e.message_id}",
         "reviewed": bool(e.reviewed_at),
+        "duplicate_of": None,
     })
+    if e.duplicate_of:
+        orig = s.scalar(select(Email).where(Email.org_id == scope.org_id,
+                                            Email.message_id == e.duplicate_of))
+        if orig is not None:
+            visible = s.scalar(_base(scope).where(Email.id == orig.id).with_only_columns(Email.id))
+            d["duplicate_of"] = {"id": orig.id if visible else None,
+                                 "received_at": orig.received_at.isoformat()
+                                 if orig.received_at else None,
+                                 "owner": owners.get(orig.mailbox_id or -1, ""),
+                                 "subject": orig.subject or ""}
     return d
+
+
+def mark_old_duplicates(s: Session) -> int:
+    """One-time: web-app emails held for review only because their file was a
+    duplicate become DUPLICATE (earlier versions put them in the review queue)."""
+    rows = s.execute(select(Email, Classification.reason)
+                     .join(Classification, Classification.email_id == Email.id)
+                     .where(Email.org_id.is_not(None), Email.status == EmailStatus.REVIEW,
+                            Email.reviewed_at.is_(None),
+                            Classification.reason.like("Duplicate invoice content (sha256) of %"))
+                     ).all()
+    for e, reason in rows:
+        e.status = EmailStatus.DUPLICATE
+        e.duplicate_of = reason.split(" of ", 1)[1].split(" ", 1)[0].strip()
+    return len(rows)
 
 
 def month_start(now: datetime) -> datetime:

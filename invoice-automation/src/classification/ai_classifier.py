@@ -85,6 +85,13 @@ Decide whether the attached document is a supplier INVOICE or RECEIPT that shoul
 sent to bookkeeping (חשבונית, חשבונית מס, חשבונית מס קבלה, קבלה, tax invoice, receipt).
 Quotes, price offers, order confirmations, marketing, newsletters, contracts, delivery
 notes and payment reminders without an invoice document are NOT invoices.
+Also NOT invoices, even with an amount, a date and company details: payment confirmations
+(אישור תשלום), insurance policies / premium confirmations (פוליסה, פרמיה, אישור ביטוח),
+bank / credit-card / account statements (דף חשבון), pay slips (תלוש שכר), tax-withholding
+certificates (אישור ניכוי מס), booking confirmations, e-tickets and boarding passes.
+A document is an invoice only when it is issued by a supplier AS an invoice or receipt
+(it calls itself חשבונית / קבלה / invoice / receipt and has an invoice/receipt number).
+For these non-invoice documents answer is_invoice=false with invoice_type "none".
 
 Respond with a single JSON object and NOTHING else, using exactly these keys:
 {"is_invoice": bool, "confidence": number 0..1, "invoice_type": one of

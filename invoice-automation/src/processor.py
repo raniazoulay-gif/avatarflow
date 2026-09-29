@@ -194,7 +194,16 @@ class Processor:
             shas = [o.sha256 for o in ok if o.sha256]
             dup_id = repo.find_forwarded_duplicate(shas, e.id,
                                                   org_id=self.tenant.get("org_id"))
-            if dup_id is not None:
+            if dup_id is not None and self.tenant:
+                # Web app: the same file already came in another email of this business.
+                # It is an invoice, just not a new one - never sent twice, no review.
+                decision.status = e.status = EmailStatus.DUPLICATE
+                decision.labels = ["Invoice/Detected"] + (["Invoice/DRY-RUN"] if dry else [])
+                decision.would_forward = e.would_forward = False
+                e.duplicate_of = dup_id
+                reason = f"כפילות: אותו קובץ כבר התקבל במייל אחר | {reason}"
+                repo.set_classification(e, reason=reason[:2000])
+            elif dup_id is not None:
                 # Identical invoice file already (would have been) forwarded from
                 # another email - do not send it again; ask for review instead.
                 decision.status = e.status = EmailStatus.REVIEW
@@ -222,7 +231,8 @@ class Processor:
             e.possible_invoice, e.possible_invoice_reason = possible_invoice(
                 p.subject, p.sender_name, p.sender_email, filenames, p.body_text)
 
-        if self.saver is not None and ai_says_invoice and is_inv:
+        if self.saver is not None and ai_says_invoice and is_inv \
+                and e.status != EmailStatus.DUPLICATE:  # the file is already in Drive
             review = e.status in (EmailStatus.REVIEW, EmailStatus.NEW_SUPPLIER_REVIEW)
             try:
                 self.saver(repo, e, p, [o for o in ok if o.final_score >= s.review_threshold],
@@ -325,6 +335,9 @@ class Processor:
                 ai_error = f"AI failed: {type(exc).__name__}"
                 log.warning("AI classification failed for %s: %s", p.message_id, ai_error)
         score = final_confidence(ai_result, rules, s)
+        if rules.non_invoice_doc:
+            # e.g. an insurance payment confirmation: never an invoice, whatever the AI says
+            score = min(score, round(s.review_threshold - 0.01, 4))
         ai_score = None
         if ai_result is not None:
             ai_score = round(ai_result.confidence if ai_result.is_invoice

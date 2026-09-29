@@ -42,7 +42,7 @@ def test_signer_rejects_tamper_and_expiry():
     tok = s.sign({"uid": 1}, 60)
     assert s.verify(tok)["uid"] == 1
     raw, mac = tok.rsplit(".", 1)
-    assert s.verify(raw + "." + mac[:-2] + "AA") is None
+    assert s.verify(raw + "." + mac[:-2] + ("AB" if mac[-2:] != "AB" else "BA")) is None
     assert Signer("other" * 10, "session").verify(tok) is None
     assert Signer("k" * 40, "oauth-state").verify(tok) is None  # purpose-bound
     old = s.sign({"uid": 1}, -1)
@@ -268,8 +268,11 @@ def test_full_flow_roles_and_isolation(app):
     # review
     assert emp.post(f"/api/emails/{ids['a3']}/review", json={"decision": "invoice"},
                     headers=H).status_code == 200
+    # a person can correct the decision later (until the file was sent)
+    assert emp.post(f"/api/emails/{ids['a3']}/review", json={"decision": "not_invoice"},
+                    headers=H).status_code == 200
     assert emp.post(f"/api/emails/{ids['a3']}/review", json={"decision": "invoice"},
-                    headers=H).status_code == 409
+                    headers=H).status_code == 200
     assert emp.post(f"/api/emails/{ids['a1']}/review", json={"decision": "invoice"},
                     headers=H).status_code == 404
     with ctx.db.repo() as repo:
@@ -645,3 +648,63 @@ def test_no_attachment_mail_listed_only_on_request(app):
                               received_at=datetime.now(UTC))])
     assert mgr.get("/api/emails").json()["total"] == 1
     assert mgr.get("/api/emails?bucket=no_attachments").json()["total"] == 1
+
+
+def test_same_invoice_file_twice_is_a_duplicate_not_review():
+    h = Harness(make_settings())
+    h.processor.tenant = {"org_id": 7, "mailbox_id": 3}
+    pdf = make_text_pdf(INVOICE_LINES)
+    h.gmail.add_message("m1", attachments=[("inv.pdf", "application/pdf", pdf)])
+    h.gmail.add_message("m2", attachments=[("copy.pdf", "application/pdf", pdf)])
+    assert h.processor.process_message("m1") == EmailStatus.DRY_RUN_WOULD_FORWARD
+    assert h.processor.process_message("m2") == EmailStatus.DUPLICATE
+    e2 = h.email("m2")
+    assert e2.duplicate_of == "m1" and not e2.would_forward
+
+
+def test_old_duplicates_leave_the_review_queue(app):
+    ctx, a = app
+    from src.database.models import Classification, Email, EmailStatus
+    from src.saas.queries import mark_old_duplicates
+    with ctx.db.repo() as repo:
+        e = Email(message_id="d2", org_id=1, status=EmailStatus.REVIEW)
+        repo.s.add(e)
+        repo.s.flush()
+        repo.s.add(Classification(email_id=e.id, reason="Duplicate invoice content (sha256) of "
+                                  "d1 | High confidence"))
+    with ctx.db.repo() as repo:
+        assert mark_old_duplicates(repo.s) == 1
+        e = repo.s.scalar(select(Email).where(Email.message_id == "d2"))
+        assert e.status == EmailStatus.DUPLICATE and e.duplicate_of == "d1"
+
+
+def test_payment_confirmation_is_not_an_invoice():
+    from src.classification import rule_engine
+    aig = ("AIG תאריך 29/09/2026 לכבוד אזולאי סימה הנדון: אישור תשלום פרמית ביטוח לפוליסה "
+           "180038021826 הרינו מתכבדים לאשר בזאת כי החל מיום 04/10/2026 הפקנו עבורכם פוליסת "
+           "ביטוח בפרמיה כוללת ע\"ס 58.28 $ יתרת הפרמיה לתשלום 0 $ מחלקת שירות לקוחות")
+    r = rule_engine.evaluate(aig)
+    assert r.non_invoice_doc and r.score <= 0.2
+    wizz = ("INVOICE / SZÁMLA Invoice number 195023100Z Invoice date 2026.09.09 Supplier name "
+            "Wizz Air Flight ticket TOTAL 76,60 EUR VAT 0.00 %")
+    assert rule_engine.evaluate(wizz).non_invoice_doc is None
+    # a receipt for an insurance payment is still a receipt
+    assert rule_engine.evaluate("קבלה מס' 5512 אישור תשלום פרמיה סה\"כ 100 ש\"ח").non_invoice_doc \
+        is None
+
+
+def test_payment_confirmation_never_becomes_invoice_even_if_ai_says_so():
+    h = Harness(make_settings())
+    lines = ["AIG", "אישור תשלום פרמית ביטוח לפוליסה 180038021826", "תאריך 29/09/2026",
+             "פרמיה כוללת 58.28 $", "ח.פ. 520040379"]
+    h.gmail.add_message("m1", attachments=[("aig.pdf", "application/pdf", make_text_pdf(lines))])
+    assert h.processor.process_message("m1") == EmailStatus.NOT_INVOICE
+
+
+def test_gate_keeps_real_invoices():
+    from src.classification import rule_engine
+    for t in ["El Al e-ticket Invoices InvoiceNo 123 total 500",
+              "חשבוניות מס e-ticket סה\"כ 300", "Payment Confirmation receipts total 20",
+              "פוליסה 55 חשבונית מס 1001 סה\"כ 200"]:
+        assert rule_engine.evaluate(t).non_invoice_doc is None, t
+    assert rule_engine.evaluate("ההעברה התקבלה - אישור תשלום 500 ש\"ח").non_invoice_doc

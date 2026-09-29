@@ -63,9 +63,11 @@ class EmailStatus:
     ERROR = "ERROR"
     # Set by a person in the web app (review queue)
     CONFIRMED_INVOICE = "CONFIRMED_INVOICE"
+    # Web app: the same invoice file was already received in another email
+    DUPLICATE = "DUPLICATE"
 
     FINAL = {
-        CONFIRMED_INVOICE,
+        CONFIRMED_INVOICE, DUPLICATE,
         NO_ATTACHMENTS, NOT_INVOICE, REVIEW, NEW_SUPPLIER_REVIEW,
         DRY_RUN_WOULD_FORWARD, FORWARD_BLOCKED, FORWARDED,
     }
@@ -99,6 +101,8 @@ class Email(Base):
     mailbox_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     reviewed_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    # DUPLICATE: message_id of the email that first brought the same file
+    duplicate_of: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     attachments: Mapped[list[Attachment]] = relationship(
         back_populates="email", cascade="all, delete-orphan"

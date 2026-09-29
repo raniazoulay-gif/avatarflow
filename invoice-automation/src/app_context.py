@@ -64,6 +64,15 @@ class AppContext:
         self.app_secret = resolve_app_secret(settings.app_secret_key, self.db)
         self.vault = Vault(self.app_secret)
         self.saas = SaasEngine(settings, self.db, self.ai, self.extractor, self.vault)
+        try:
+            from .saas.queries import mark_old_duplicates
+
+            with self.db.repo() as repo:
+                n = mark_old_duplicates(repo.s)
+            if n:
+                log.info("Moved %d duplicate email(s) out of the review queue", n)
+        except Exception as exc:
+            log.warning("Duplicate migration skipped: %s", type(exc).__name__)
 
     def bootstrap_admin(self) -> None:
         try:

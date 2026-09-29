@@ -16,6 +16,8 @@ _AMOUNT_VAL = re.compile(kw.AMOUNT_VALUE, re.IGNORECASE)
 _VAT = kw.compile_all(kw.VAT_PATTERNS)
 _SUPPLIER = kw.compile_all(kw.SUPPLIER_PATTERNS)
 _CURRENCY = {c: kw.compile_all(p) for c, p in kw.CURRENCY_PATTERNS.items()}
+_NON_INVOICE = kw.compile_all(kw.NON_INVOICE_PATTERNS)
+_STRONG = kw.compile_all(kw.STRONG_INVOICE_PATTERNS)
 
 # Weights sum to 1.0
 WEIGHTS = {
@@ -36,11 +38,16 @@ class RuleResult:
     invoice_date: str | None = None
     currency: str | None = None
     matched_keywords: list[str] = field(default_factory=list)
+    # e.g. "אישור תשלום" - set only when the document never calls itself an invoice
+    non_invoice_doc: str | None = None
 
     @property
     def reason(self) -> str:
         found = [k for k, v in self.indicators.items() if v]
-        return "Rules found: " + (", ".join(found) if found else "no invoice indicators")
+        text = "Rules found: " + (", ".join(found) if found else "no invoice indicators")
+        if self.non_invoice_doc:
+            text = f"מסמך מסוג \"{self.non_invoice_doc}\" - לא חשבונית | {text}"
+        return text
 
 
 def _any(patterns: list[re.Pattern[str]], text: str) -> re.Match[str] | None:
@@ -92,7 +99,12 @@ def evaluate(text: str) -> RuleResult:
             break
 
     score = round(sum(WEIGHTS[k] for k, v in ind.items() if v), 4)
+    non_inv = _any(_NON_INVOICE, text)
+    non_invoice_doc = non_inv.group(0).strip() if non_inv and not _any(_STRONG, text) else None
+    if non_invoice_doc:
+        score = min(score, 0.2)
     return RuleResult(
+        non_invoice_doc=non_invoice_doc,
         score=min(1.0, score),
         indicators=ind,
         invoice_number=number,

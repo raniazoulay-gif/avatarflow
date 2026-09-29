@@ -125,6 +125,7 @@ class Web:
         self.check_ip = Throttle(30)
         self.member_adds = Throttle(30, window=24 * 3600)
         self.manual_sends = Throttle(40, window=24 * 3600)
+        self.recheck_throttle = Throttle(30, window=15 * 60)
 
     def system_mail(self, to: str, subject: str, text: str) -> bool:
         """Sends from the TotanRomi system Gmail (the env-configured account).
@@ -748,6 +749,32 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
         return repo.s.scalar(select(Mailbox).where(
             Mailbox.user_id == u.id, Mailbox.status.in_(("active", "error"))).limit(1))
 
+    @r.post("/api/emails/{eid}/recheck", dependencies=[Depends(csrf)])
+    async def recheck(eid: int, u: User = Depends(member)):
+        """Check a document again with the current rules and AI."""
+        with web.db.repo() as repo:
+            e = Q.get_email(repo.s, scope(repo, u), eid)
+            if e is None:
+                raise HTTPException(404, "not found")
+            if e.reviewed_at is not None:
+                raise HTTPException(409, "המסמך כבר סומן ידנית - ההחלטה שלכם נשמרת")
+            if e.mailbox_id is None:
+                raise HTTPException(409, "התיבה של המסמך לא מחוברת")
+            mbid, mid = e.mailbox_id, e.message_id
+        if web.recheck_throttle.blocked(str(u.id)):
+            raise HTTPException(429, "יותר מדי בדיקות חוזרות. נסו שוב בעוד כמה דקות")
+        web.recheck_throttle.hit(str(u.id))
+        try:
+            res = await run_in_threadpool(web.engine.recheck, mbid, [mid])
+        except Exception as exc:
+            log.warning("Recheck failed: %s", type(exc).__name__)
+            raise HTTPException(502, "הבדיקה החוזרת נכשלה. נסו שוב בעוד רגע") from exc
+        if res.get(mid) in (None, "SKIPPED"):
+            raise HTTPException(409, "אי אפשר לבדוק שוב את המסמך הזה")
+        with web.db.repo() as repo:
+            e = Q.get_email(repo.s, scope(repo, u), eid)
+            return {"ok": True, "bucket": Q.BUCKET.get(e.status, "pending") if e else None}
+
     @r.get("/api/emails/{eid}/send-options")
     def send_options(eid: int, u: User = Depends(member)):
         with web.db.repo() as repo:
@@ -887,6 +914,22 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
         decision = d.get("decision")
         if decision not in ("invoice", "not_invoice"):
             raise HTTPException(400, "bad decision")
+        with web.db.repo() as repo:
+            e0 = Q.get_email(repo.s, scope(repo, u), eid)
+            mbid = e0.mailbox_id if e0 is not None else None
+        lock = web.engine.mailbox_lock(mbid) if mbid else None
+
+        def locked() -> dict:  # acquire and release in the same thread (RLock)
+            if lock is not None and not lock.acquire(timeout=20):
+                raise HTTPException(409, "המסמך נבדק כרגע. נסו שוב בעוד רגע")
+            try:
+                return _apply_review(eid, u, decision)
+            finally:
+                if lock is not None:
+                    lock.release()
+        return await run_in_threadpool(locked)
+
+    def _apply_review(eid: int, u: User, decision: str) -> dict:
         with web.db.repo() as repo:
             e = Q.get_email(repo.s, scope(repo, u), eid)
             if e is None:
@@ -1216,6 +1259,20 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
                            Invite.expires_at > datetime.now(UTC)))]
             return {"orgs": out, "pending_signups": invites,
                     "global_production": web.settings.forward_switches_on}
+
+    @r.get("/api/admin/mailboxes")
+    def admin_mailboxes(u: User = Depends(platform_admin)):
+        """Every connected mailbox of every customer (status only - no mail content)."""
+        with web.db.repo() as repo:
+            orgs = {o.id: o.name for o in repo.s.scalars(select(Organization))}
+            users = {x.id: x.name for x in repo.s.scalars(select(User))}
+            return {"items": [{"email": m.email, "org": orgs.get(m.org_id, ""),
+                               "owner": users.get(m.user_id or -1, ""), "status": m.status,
+                               "last_error": m.last_error,
+                               "app": "פרויקט של הלקוח" if m.oauth_app == "org" else "משותף",
+                               "last_poll_at": m.last_poll_at.isoformat()
+                               if m.last_poll_at else None}
+                              for m in repo.s.scalars(select(Mailbox).order_by(Mailbox.org_id))]}
 
     @r.post("/api/admin/my-org", dependencies=[Depends(csrf)])
     async def admin_my_org(request: Request, u: User = Depends(platform_admin)):

@@ -819,3 +819,53 @@ def test_reversed_pass_never_bypasses_the_look_alike_gate():
          "Company No 520000472")
     assert rule_engine.evaluate(t).non_invoice_doc
     assert rule_engine.evaluate("ניוזלטר בעמוד הבא").indicators["supplier"] is False
+
+
+def test_ai_outage_document_is_rechecked_to_invoice():
+    from tests.conftest import FakeBackend
+    backend = FakeBackend(fail=True)
+    h = Harness(make_settings(), backend=backend)
+    h.processor.tenant = {"org_id": 7, "mailbox_id": 3}
+    h.gmail.add_message("m1", attachments=[("inv.pdf", "application/pdf",
+                                            make_text_pdf(INVOICE_LINES))])
+    assert h.processor.process_message("m1") == EmailStatus.REVIEW  # rules only: never HIGH
+    with h.db.repo() as repo:
+        a = repo.get_email("m1").attachments[0]
+        assert a.classification_json is None  # marks "judged without AI"
+    backend.fail = False
+    assert h.processor.reclassify("m1") == EmailStatus.DRY_RUN_WOULD_FORWARD
+    assert h.email("m1").rechecks == 1
+    assert not h.gmail.sent  # a re-check never forwards
+
+
+def test_reclassify_respects_human_decision():
+    from datetime import UTC, datetime
+    h = Harness(make_settings())
+    h.gmail.add_message("m1", attachments=[("inv.pdf", "application/pdf",
+                                            make_text_pdf(INVOICE_LINES))])
+    h.processor.process_message("m1")
+    with h.db.repo() as repo:
+        repo.get_email("m1").reviewed_at = datetime.now(UTC)
+    assert h.processor.reclassify("m1") is None
+
+
+def test_admin_mailbox_list(app):
+    ctx, a = app
+    admin = _admin_client(ctx, a)
+    mgr = _signup(ctx, a, admin)
+    with ctx.db.repo() as repo:
+        oid = repo.s.scalar(select(Organization.id).where(Organization.name == "Acme"))
+        repo.s.add(Mailbox(org_id=oid, email="x@acme.co.il", status="error", last_error="boom"))
+    items = admin.get("/api/admin/mailboxes").json()["items"]
+    assert items[0]["org"] == "Acme" and items[0]["last_error"] == "boom"
+    assert mgr.get("/api/admin/mailboxes").status_code == 403
+
+
+def test_recheck_keeps_decision_when_gmail_unreadable():
+    h = Harness(make_settings())
+    h.gmail.add_message("m1", attachments=[("inv.pdf", "application/pdf",
+                                            make_text_pdf(INVOICE_LINES))])
+    assert h.processor.process_message("m1") == EmailStatus.DRY_RUN_WOULD_FORWARD
+    h.gmail.fail_get.add("m1")
+    assert h.processor.reclassify("m1") is None
+    assert h.email("m1").status == EmailStatus.DRY_RUN_WOULD_FORWARD

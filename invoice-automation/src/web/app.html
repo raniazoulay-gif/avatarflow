@@ -331,7 +331,7 @@ async function vDash(){
   const queue=d.review_queue.length?d.review_queue.map(x=>`<div class="it">${ft(x)}<div class="grow" data-open="${x.id}" style="cursor:pointer"><div class="t1">${esc(x.supplier)}</div><div class="t2">${x.invoice_number?'חשבונית '+esc(x.invoice_number)+' · ':''}<span class="num">${money(x.total,x.currency)}</span>${isMgr()&&x.owner?' · אצל '+esc(x.owner):''}</div></div>${score(x)}<button class="btn sm" data-rv="${x.id}" data-d="invoice">${i('check','width:16px;height:16px')}חשבונית</button><button class="btn sm ghost" data-rv="${x.id}" data-d="not_invoice">לא</button></div>`).join(''):'<p class="muted">אין מסמכים לבדיקה.</p>';
   let h=`<div class="hello"><div><h1>שלום, ${esc(hello)} 👋</h1><p class="muted" style="margin:6px 0 0">${isMgr()?'סיכום של כל הצוות':'המסמכים מהתיבה שלך'} · היום טופלו ${d.today_documents} מסמכים</p></div>
     <button class="btn" style="margin-right:auto" id="scan">${i('scan')}סרוק עכשיו</button></div>
-   <div class="kpis">${kpi('מסמכים החודש',d.month_documents,'file','#0891B2','var(--c1soft)','לכל המסמכים','')}${kpi('זוהו כחשבונית',d.month_invoices,'send','var(--c2)','var(--c2soft)',d.auto_rate+'% מהמסמכים','invoice')}${kpi('ממתינים לבדיקה',d.review_pending,'clock','var(--warn)','var(--warnsoft)','לבדיקה עכשיו','review')}${kpi(isMgr()?'שעות שהצוות חסך':'שעות שחסכת',d.hours_saved,'spark','var(--ok)','var(--oksoft)','החודש, הערכה')}</div>`;
+   <div class="kpis">${kpi('מסמכים החודש',d.month_documents,'file','#0891B2','var(--c1soft)','לכל המסמכים','')}${kpi('זוהו כחשבונית',d.month_invoices,'send','var(--c2)','var(--c2soft)',d.auto_rate+'% מהמסמכים','invoice')}${kpi('ממתינים לבדיקה',d.review_pending,'clock','var(--warn)','var(--warnsoft)','לבדיקה עכשיו','review')}${kpi(isMgr()?'שעות שהצוות חסך':'שעות שחסכת',d.hours_saved,'spark','var(--ok)','var(--oksoft)',isMgr()?'לדוחות':'לחשבוניות',isMgr()?'#reports':'#docs')}</div>`;
   if(isMgr()&&d.team){
     const alert=d.team.filter(r=>r.review>=4);
     if(alert.length) h+=`<div class="banner">${i('alert')}${alert.map(a=>esc(a.name)).join(', ')}: 4 מסמכים או יותר ממתינים לבדיקה.</div>`;
@@ -411,16 +411,31 @@ async function vSettings(){
    <div class="card pane"><h3>${i('send','color:var(--c2)')}מצב העברה לרואה החשבון</h3><p style="margin:0">${d.production?'<span class="chip c-ok">פעיל</span> חשבוניות מעל הסף נשלחות לרואה החשבון.':'<span class="chip c-warn">מצב בדיקה</span> המערכת עוד לא שולחת מיילים. ההפעלה נעשית על ידי TotanRomi, אחרי תקופת בדיקה ובאישורכם.'}</p></div>`;
 }
 async function vAdmin(){
-  const d=await api('/api/admin/orgs');
+  const d=await api('/api/admin/orgs');S.adminOrgs=d.orgs;
   return `${!S.me.org?`<div class="banner info">${i('building')}<span class="grow">רוצה להשתמש במערכת גם לעסק שלך? צור עסק ותהיה המנהל שלו.</span><button class="btn sm" id="myorg">יצירת העסק שלי</button></div>`:''}
    <div class="card pane"><h3>${i('plus','color:var(--c2)')}לקוח חדש</h3><p class="muted" style="margin:0">צור קישור הרשמה ושלח אותו ללקוח. הלקוח יירשם כמנהל ויוסיף את העובדים שלו.</p>
    <form id="sl" class="row"><div class="field"><label for="sl_note">הערה (שם הלקוח)</label><input id="sl_note"></div><button class="btn" style="height:46px">${i('link')}צור קישור הרשמה</button></form><div id="sl_out"></div></div>
-   <div class="kpis">${kpi('לקוחות',d.orgs.length,'building','var(--c2)','var(--c2soft)','')}${kpi('תיבות מחוברות',d.orgs.reduce((a,o)=>a+o.mailboxes,0),'mail','#0891B2','var(--c1soft)','')}${kpi('מסמכים החודש',d.orgs.reduce((a,o)=>a+o.month_documents,0),'file','var(--ok)','var(--oksoft)','')}${kpi('תיבות עם תקלה',d.orgs.reduce((a,o)=>a+o.mailbox_errors,0),'alert','var(--bad)','var(--badsoft)','')}</div>
+   <div class="kpis">${kpi('לקוחות',d.orgs.length,'building','var(--c2)','var(--c2soft)','לרשימת הלקוחות','@orgs')}${kpi('תיבות מחוברות',d.orgs.reduce((a,o)=>a+o.mailboxes,0),'mail','#0891B2','var(--c1soft)','לכל התיבות','@mailboxes')}${kpi('מסמכים החודש',d.orgs.reduce((a,o)=>a+o.month_documents,0),'file','var(--ok)','var(--oksoft)','לפי לקוח','@docs')}${kpi('תיבות עם תקלה',d.orgs.reduce((a,o)=>a+o.mailbox_errors,0),'alert','var(--bad)','var(--badsoft)','לפרטי התקלות','@errors')}</div>
    ${d.global_production?'':`<div class="banner">${i('shield')}המערכת כולה במצב DRY RUN (משתני הסביבה ב-Railway). גם לקוח שמסומן "העברה פעילה" לא יקבל שליחה עד שתשנה אותם.</div>`}
    <div class="card tbl"><table><thead><tr><th>לקוח</th><th>מנהל</th><th>משתמשים</th><th>תיבות</th><th>מסמכים החודש</th><th>Google</th><th>העברה לרו״ח</th><th></th></tr></thead><tbody>
    ${d.orgs.map(o=>`<tr><td><b>${esc(o.name)}</b><div class="t2">${dt(o.created_at)}</div></td><td>${esc(o.manager)}<div class="t2 en">${esc(o.manager_email)}</div></td><td class="num">${o.users}</td><td class="num">${o.mailboxes}${o.mailbox_errors?` <span class="chip c-bad">${o.mailbox_errors} תקלות</span>`:''}</td><td class="num">${o.month_documents}</td><td><span class="chip c-mut">${o.google_app==='org'?'פרויקט של הלקוח':'משותף'}</span></td>
    <td>${o.production_enabled?'<span class="chip c-ok">פעיל</span>':'<span class="chip c-warn">DRY RUN</span>'}</td><td style="white-space:nowrap"><button class="btn sm ghost" data-prod="${o.id}" data-on="${o.production_enabled?0:1}">${o.production_enabled?'חזרה ל-DRY RUN':'הפעלת העברה'}</button> <button class="btn sm ${o.active?'danger':'ghost'}" data-act="${o.id}" data-on="${o.active?0:1}">${o.active?'השהיה':'הפעלה'}</button></td></tr>`).join('')||`<tr><td colspan="8" class="muted">עדיין אין לקוחות.</td></tr>`}
    </tbody></table></div>`;
+}
+
+async function adminList(kind){
+  if(kind==='orgs'){const t=document.querySelector('#main .tbl');if(t)t.scrollIntoView({behavior:'smooth'});return;}
+  let title,body;
+  if(kind==='docs'){title='מסמכים החודש לפי לקוח';
+    body=(S.adminOrgs||[]).map(o=>`<div class="set"><span class="grow"><b>${esc(o.name)}</b> <span class="t2">${esc(o.manager)}</span></span><b class="num">${o.month_documents}</b></div>`).join('')||'<p class="muted">אין נתונים.</p>';}
+  else{let d;try{d=await api('/api/admin/mailboxes')}catch(x){toast(x.message);return;}
+    const items=kind==='errors'?d.items.filter(m=>m.status==='error'):d.items;
+    title=kind==='errors'?'תיבות עם תקלה':'כל התיבות המחוברות';
+    const st={active:['פעילה','c-ok'],error:['תקלה','c-bad'],paused:['מושהית','c-mut'],pending:['ממתינה','c-mut']};
+    body=items.map(m=>`<div class="set" style="align-items:flex-start"><span class="grow"><b class="en">${esc(m.email)}</b><span class="t2" style="display:block">${esc(m.org)}${m.owner?' · '+esc(m.owner):''} · ${esc(m.app)}${m.last_poll_at?' · נבדקה '+dtt(m.last_poll_at):''}</span>${m.last_error?`<span class="t2" style="display:block;color:var(--bad)">${esc(m.last_error)}</span>`:''}</span><span class="chip ${(st[m.status]||st.pending)[1]}">${(st[m.status]||[esc(m.status)])[0]}</span></div>`).join('')||`<p class="muted">${kind==='errors'?'אין תקלות כרגע.':'עדיין אין תיבות.'}</p>`;}
+  $('layer2').innerHTML=`<div class="modal2"><div class="scrim" data-close2="1"></div><div class="modal"><div class="card" role="dialog" aria-label="${esc(title)}">
+   <div style="display:flex;align-items:center;gap:10px"><h3 class="grow" style="margin:0;font-size:20px">${esc(title)}</h3><button class="btn ghost sm" data-close2="1" aria-label="סגירה">${i('x','width:16px;height:16px')}</button></div>
+   <div style="margin-top:12px">${body}</div></div></div></div>`;
 }
 
 /* ---------------- scan: the user picks which dates to scan ---------------- */
@@ -531,7 +546,7 @@ async function openDoc(id){
    ${b==='review'?`<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap"><button class="btn" data-rv="${d.id}" data-d="invoice">${i('check')}זו חשבונית</button><button class="btn ghost" data-rv="${d.id}" data-d="not_invoice">זו לא חשבונית</button></div>`
      :(b==='invoice'||b==='duplicate')&&!(d.forward&&d.forward.state==='SENT')?`<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap"><button class="btn ghost" data-rv="${d.id}" data-d="not_invoice">${i('x')}זו לא חשבונית</button></div>`
      :b==='not_invoice'?`<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap"><button class="btn ghost" data-rv="${d.id}" data-d="invoice">${i('check')}זו כן חשבונית</button></div>`:''}
-   <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap"><a class="btn ghost" href="${esc(d.gmail_link)}" target="_blank" rel="noopener">${i('mail')}פתיחה ב-Gmail</a>${d.drive_file_id?`<a class="btn ghost" href="https://drive.google.com/file/d/${encodeURIComponent(d.drive_file_id)}/view" target="_blank" rel="noopener">${i('drive')}הקובץ ב-Drive</a>`:''}</div></aside>`;
+   <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap"><a class="btn ghost" href="${esc(d.gmail_link)}" target="_blank" rel="noopener">${i('mail')}פתיחה ב-Gmail</a>${!d.reviewed&&!(d.forward&&d.forward.state==='SENT')?`<button type="button" class="btn ghost" data-recheck="${Number(d.id)}">${i('scan')}בדיקה חוזרת</button>`:''}${d.drive_file_id?`<a class="btn ghost" href="https://drive.google.com/file/d/${encodeURIComponent(d.drive_file_id)}/view" target="_blank" rel="noopener">${i('drive')}הקובץ ב-Drive</a>`:''}</div></aside>`;
 }
 
 /* ---------------- events ---------------- */
@@ -549,7 +564,13 @@ document.addEventListener('click',async e=>{
   const sd=t.closest('[data-send]');if(sd){openSend(Number(sd.dataset.send));return;}
   if(t.closest('[data-close2]')){$('layer2').innerHTML='';return;}
   if(t.closest('#snd_go')){doSend();return;}
-  const kf=t.closest('[data-kf]');if(kf){S.filter=kf.dataset.kf;S.offset=0;$('layer').innerHTML='';go('inbox');return;}
+  const kf=t.closest('[data-kf]');if(kf){const v=kf.dataset.kf;$('layer').innerHTML='';
+    if(v.startsWith('#')){go(v.slice(1));return;}
+    if(v.startsWith('@')){adminList(v.slice(1));return;}
+    S.filter=v;S.offset=0;go('inbox');return;}
+  const rc=t.closest('[data-recheck]');if(rc){rc.disabled=true;rc.textContent='בודק שוב…';
+    try{const r=await api(`/api/emails/${rc.dataset.recheck}/recheck`,{json:{}});toast('נבדק שוב: '+((BUCKET[r.bucket]||[''])[0]||'עודכן'));openDoc(rc.dataset.recheck);if(S.view==='inbox'||S.view==='dash')render();}
+    catch(x){toast(x.message);rc.disabled=false;rc.textContent='בדיקה חוזרת';}return;}
   const sp=t.closest('[data-sp]');if(sp){scanPreset(sp.dataset.sp);return;}
   if(t.closest('#scan_go')){startScan();return;}
   if(t.closest('#xls')){window.location='/api/reports/excel';return;}

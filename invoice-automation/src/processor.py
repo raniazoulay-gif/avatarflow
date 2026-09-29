@@ -84,6 +84,7 @@ class Processor:
         self.tenant = tenant or {}
         # callable(repo, email_row, parsed, outcomes, review: bool) - saves files to Drive
         self.saver = saver
+        self._rechecking = False  # a re-check: no notifications, no counters
 
     def _k(self, key: str) -> str:
         """Per-tenant key for the system_state counters (legacy keys stay as is)."""
@@ -101,6 +102,37 @@ class Processor:
                 self._record_error(mid, f"Unexpected: {type(exc).__name__}: {exc}")
                 results[mid] = EmailStatus.ERROR
         return results
+
+    def reclassify(self, message_id: str) -> str | None:
+        """Check a document again (e.g. the AI was unavailable the first time, or the
+        rules improved). Never after a person decided or the file was sent, and never
+        forwards: it runs as a history (backfill) item."""
+        with self.db.repo() as repo:
+            e = repo.get_email(message_id)
+            if e is None or e.reviewed_at is not None or e.status in (
+                    EmailStatus.FORWARDED, EmailStatus.NO_ATTACHMENTS, EmailStatus.PENDING):
+                return None
+            f = repo.get_forward(message_id)
+            if f is not None and f.state in ("SENT", "SENDING"):
+                return None
+            prev_status, prev_attempts = e.status, e.attempts
+            e.status = EmailStatus.PENDING
+            e.attempts = min(e.attempts or 0, self.settings.max_processing_attempts - 1)
+            e.rechecks = (e.rechecks or 0) + 1
+            e.duplicate_of = None
+        self._rechecking = True
+        try:
+            result = self.process_message(message_id, is_backfill=True)
+        finally:
+            self._rechecking = False
+        if result in (None, EmailStatus.ERROR):
+            # e.g. Gmail could not be read right now: keep the earlier decision
+            with self.db.repo() as repo:
+                e = repo.get_email(message_id)
+                if e is not None and e.reviewed_at is None:
+                    e.status, e.attempts = prev_status, prev_attempts
+            return None
+        return result
 
     def process_message(self, message_id: str, *, is_backfill: bool = False) -> str | None:
         with self.db.repo() as repo:
@@ -240,11 +272,11 @@ class Processor:
             except Exception as exc:  # saving is best-effort; never fails the email
                 log.warning("Drive save failed for %s: %s", p.message_id, type(exc).__name__)
 
-        if is_inv:
+        if is_inv and not self._rechecking:
             repo.incr_state(self._k("total_invoices"))
-        if decision.would_forward:
+        if decision.would_forward and not self._rechecking:
             repo.incr_state(self._k("total_would_forward"))
-        if self.notifier is not None:
+        if self.notifier is not None and not self._rechecking:
             self.notifier.maybe_notify(e)
         return self._finish(repo, e, labels=decision.labels)
 

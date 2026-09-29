@@ -103,6 +103,8 @@ class Email(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     # DUPLICATE: message_id of the email that first brought the same file
     duplicate_of: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # how many times the document was checked again (see Processor.reclassify)
+    rechecks: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
 
     attachments: Mapped[list[Attachment]] = relationship(
         back_populates="email", cascade="all, delete-orphan"

@@ -18,7 +18,7 @@ import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from ..config.settings import Settings
 from ..gmail.auth import describe_auth_error
@@ -213,12 +213,77 @@ class SaasEngine:
             mb.last_poll_at = datetime.now(UTC)
 
     def poll_all(self, org_id: int | None = None) -> int:
+        if org_id is None:
+            try:
+                self.retry_ai_failures()
+            except Exception as exc:
+                log.warning("AI retry pass failed: %s", type(exc).__name__)
         n = 0
         for mb, org in self.active_mailboxes():
             if org_id is not None and org.id != org_id:
                 continue
             self.poll_mailbox(mb, org)
             n += 1
+        return n
+
+    def recheck(self, mailbox_id: int, message_ids: list[str], *,
+                wait: bool = True) -> dict[str, str]:
+        """Classify the given documents again (synchronously, under the mailbox lock).
+        wait=False (background retries): skip a mailbox that is busy, e.g. scanning."""
+        out: dict[str, str] = {}
+        with self.db.repo() as repo:
+            mb = repo.s.get(Mailbox, mailbox_id)
+            org = repo.s.get(Organization, mb.org_id) if mb else None
+            if mb is None or org is None:
+                return out
+            repo.s.expunge(mb)
+            repo.s.expunge(org)
+        lock = self.mailbox_lock(mailbox_id)
+        for mid in message_ids:
+            if not lock.acquire(blocking=wait, timeout=60 if wait else -1):
+                break
+            try:
+                rt = self.runtime(mb, org)
+                out[mid] = rt.processor.reclassify(mid) or "SKIPPED"
+            finally:
+                lock.release()
+        return out
+
+    def retry_ai_failures(self, limit: int = 10) -> int:
+        """Documents judged while the AI was unavailable (rules only, so at most
+        "review") are checked again automatically once the AI is back."""
+        if not self.ai.available:
+            return 0
+        from ..database.models import Attachment, Email, EmailStatus
+
+        cutoff = datetime.now(UTC) - timedelta(minutes=15)
+        with self.db.repo() as repo:
+            rows = repo.s.execute(
+                select(Email.mailbox_id, Email.message_id).join(
+                    Attachment, Attachment.email_id == Email.id).where(
+                    Email.org_id.is_not(None), Email.mailbox_id.is_not(None),
+                    Email.reviewed_at.is_(None),
+                    Email.status.in_((EmailStatus.REVIEW, EmailStatus.NOT_INVOICE)),
+                    func.coalesce(Email.rechecks, 0) < 5,
+                    Email.processed_at < cutoff,
+                    Attachment.processed.is_(True), Attachment.error.is_(None),
+                    Attachment.classification_json.is_(None),
+                    func.coalesce(Attachment.extraction_method, "") != "reused")
+                .distinct().limit(limit)).all()
+            # count the try up front, so rows that keep failing never starve the rest
+            for _, mid in rows:
+                e = repo.get_email(mid)
+                if e is not None:
+                    e.rechecks = (e.rechecks or 0) + 1
+        by_mb: dict[int, list[str]] = {}
+        for mbid, mid in rows:
+            by_mb.setdefault(mbid, []).append(mid)
+        n = 0
+        for mbid, mids in by_mb.items():
+            try:
+                n += len(self.recheck(mbid, mids, wait=False))
+            except Exception as exc:
+                log.warning("AI retry for mailbox %s failed: %s", mbid, type(exc).__name__)
         return n
 
     def scan_org(self, org_id: int) -> bool:

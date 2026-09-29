@@ -752,3 +752,53 @@ def test_seen_flag_file_view_and_hidden_ai_reasons(app, monkeypatch):
     assert "sandbox" in h.headers["content-security-policy"]
     other = _signup(ctx, a, admin, org_name="Other", email="boss@other.co.il")
     assert other.get(f"/api/files/{ids['inv.pdf']}").status_code == 404
+
+
+def test_send_document_to_handler(app, monkeypatch):
+    ctx, a = app
+    admin = _admin_client(ctx, a)
+    mgr = _signup(ctx, a, admin)
+    emp = _join(a, mgr)
+    from src.database.models import Attachment, Classification, Email, EmailStatus
+    with ctx.db.repo() as repo:
+        emp_u = repo.s.scalar(select(User).where(User.role == "employee"))
+        mb = Mailbox(org_id=emp_u.org_id, user_id=emp_u.id, email="dana@acme.co.il",
+                     status="active")
+        repo.s.add(mb)
+        repo.s.flush()
+        e = Email(message_id="s1", org_id=emp_u.org_id, mailbox_id=mb.id,
+                  status=EmailStatus.DRY_RUN_WOULD_FORWARD)
+        repo.s.add(e)
+        repo.s.flush()
+        repo.s.add(Classification(email_id=e.id, supplier="Wizz Air", invoice_number="1950",
+                                  total=76.6, currency="EUR", best_attachment="inv.pdf"))
+        repo.s.add(Attachment(email_id=e.id, attachment_key="1:inv.pdf", filename="inv.pdf"))
+        eid, mbid = e.id, mb.id
+    opts = emp.get(f"/api/emails/{eid}/send-options").json()
+    assert opts["from_email"] == "dana@acme.co.il"
+    assert {"label": "רואה החשבון", "email": "cpa@acme.co.il"} in opts["options"]
+    assert any(o["email"] == "boss@acme.co.il" for o in opts["options"])
+    sent = []
+    monkeypatch.setattr(ctx.saas, "message_files",
+                        lambda mid, msg, keys: [("inv.pdf", b"%PDF-1.4 x", "application/pdf")])
+    monkeypatch.setattr(ctx.saas, "send_from", lambda mid, raw: sent.append((mid, raw)))
+    r = emp.post(f"/api/emails/{eid}/send", json={"to": "finance@acme.co.il",
+                                                  "label": "מחלקת כספים", "note": "לתשלום"},
+                 headers=H)
+    assert r.status_code == 200, r.text
+    import email as _email
+    msg = _email.message_from_bytes(sent[0][1])
+    assert sent[0][0] == mbid and msg["To"] == "finance@acme.co.il"
+    assert any(p.get_filename() == "inv.pdf" for p in msg.walk())
+    body = next(p for p in msg.walk() if p.get_content_type() == "text/plain")
+    assert "לתשלום" in body.get_payload(decode=True).decode()
+    d = emp.get(f"/api/emails/{eid}").json()
+    assert d["sends"][0]["to"] == "finance@acme.co.il"
+    # the address is offered next time; header injection / bad address refused
+    assert any(o["email"] == "finance@acme.co.il"
+               for o in emp.get(f"/api/emails/{eid}/send-options").json()["options"])
+    assert emp.post(f"/api/emails/{eid}/send", json={"to": "a@b.co\nBcc: x@y.z"},
+                    headers=H).status_code == 400
+    other = _signup(ctx, a, admin, org_name="Other", email="boss@other.co.il")
+    assert other.post(f"/api/emails/{eid}/send", json={"to": "x@y.co.il"},
+                      headers=H).status_code == 404

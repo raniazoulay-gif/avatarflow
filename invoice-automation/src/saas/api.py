@@ -33,8 +33,9 @@ from starlette.concurrency import run_in_threadpool
 from ..config.settings import EMAIL_RE
 from ..database.models import Attachment, Email, EmailStatus
 from . import queries as Q
+from .engine import MailboxUnavailable
 from .google_oauth import CALLBACK_PATH, OAuthError, authorization_url, exchange_code
-from .models import EmailView, Invite, Mailbox, Organization, Role, User
+from .models import EmailView, Invite, Mailbox, ManualSend, Organization, Role, User
 from .security import (
     Signer,
     hash_password,
@@ -55,6 +56,7 @@ CODE_MAX_ATTEMPTS = 5
 CODE_DAILY_FAILURES = 10  # wrong codes per email per 24h, across all codes
 TEMP_PASSWORD_HOURS = 72
 MAX_SCAN_DAYS = 731
+MANUAL_SENDS_PER_DAY = 40
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 
@@ -122,6 +124,7 @@ class Web:
         self.code_ip = Throttle(15)
         self.check_ip = Throttle(30)
         self.member_adds = Throttle(30, window=24 * 3600)
+        self.manual_sends = Throttle(40, window=24 * 3600)
 
     def system_mail(self, to: str, subject: str, text: str) -> bool:
         """Sends from the TotanRomi system Gmail (the env-configured account).
@@ -718,6 +721,12 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
             d = Q.email_detail(repo.s, sc, e)
             if u.role != Role.MANAGER:
                 d["reasons"] = []  # the AI's reasoning is for managers only
+            sends = list(repo.s.scalars(select(ManualSend).where(
+                ManualSend.email_id == e.id, ManualSend.org_id == u.org_id)
+                .order_by(ManualSend.id.desc())))
+            names = user_names(repo, u.org_id) if sends else {}
+            d["sends"] = [{"to": x.to_email, "label": x.to_label, "at": x.sent_at.isoformat(),
+                           "by": names.get(x.user_id, "")} for x in sends]
             # opening the document marks it as seen by this user
             if repo.s.scalar(select(EmailView.id).where(EmailView.email_id == e.id,
                                                         EmailView.user_id == u.id)) is None:
@@ -727,6 +736,114 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
                 except IntegrityError:
                     pass
             return d
+
+    def user_names(repo, org_id) -> dict[int, str]:
+        return {x.id: x.name for x in repo.s.scalars(select(User).where(User.org_id == org_id))}
+
+    def sender_mailbox(repo, u: User, e) -> Mailbox | None:
+        """Send from the user's OWN Gmail: the one that received it, else their first."""
+        mb = repo.s.get(Mailbox, e.mailbox_id) if e.mailbox_id else None
+        if mb is not None and mb.user_id == u.id and mb.status in ("active", "error"):
+            return mb
+        return repo.s.scalar(select(Mailbox).where(
+            Mailbox.user_id == u.id, Mailbox.status.in_(("active", "error"))).limit(1))
+
+    @r.get("/api/emails/{eid}/send-options")
+    def send_options(eid: int, u: User = Depends(member)):
+        with web.db.repo() as repo:
+            e = Q.get_email(repo.s, scope(repo, u), eid)
+            if e is None:
+                raise HTTPException(404, "not found")
+            org = repo.s.get(Organization, u.org_id)
+            opts = []
+            if org.accountant_email:
+                opts.append({"label": "רואה החשבון", "email": org.accountant_email})
+            for m in repo.s.scalars(select(User).where(
+                    User.org_id == u.org_id, User.role == Role.MANAGER, User.active.is_(True),
+                    User.id != u.id)):
+                opts.append({"label": f"מנהל/ת: {m.name}", "email": m.email})
+            seen = {o["email"] for o in opts}
+            # only addresses THIS user sent to before (labels are typed by users)
+            for x in repo.s.scalars(select(ManualSend).where(ManualSend.org_id == u.org_id,
+                                                             ManualSend.user_id == u.id)
+                                    .order_by(ManualSend.id.desc()).limit(40)):
+                if x.to_email not in seen:
+                    seen.add(x.to_email)
+                    opts.append({"label": x.to_label or "נשלח בעבר", "email": x.to_email})
+            mb = sender_mailbox(repo, u, e)
+            return {"options": opts[:12], "from_email": mb.email if mb else None}
+
+    @r.post("/api/emails/{eid}/send", dependencies=[Depends(csrf)])
+    async def send_document(eid: int, request: Request, u: User = Depends(member)):
+        """A person forwards a document to whoever handles it. Always a manual,
+        explicit action - separate from the automatic forwarding (and its DRY RUN)."""
+        d = await body(request)
+        to = clean_email(d.get("to"))
+        label = re.sub(r"\s+", " ", str(d.get("label") or "")).strip()[:100] or None
+        note = str(d.get("note") or "").strip()[:1500]
+        with web.db.repo() as repo:
+            # counted in the database: survives restarts and several workers
+            today = repo.s.scalar(select(func.count(ManualSend.id)).where(
+                ManualSend.user_id == u.id,
+                ManualSend.sent_at > datetime.now(UTC) - timedelta(days=1))) or 0
+            if today >= MANUAL_SENDS_PER_DAY or web.manual_sends.blocked(str(u.id)):
+                raise HTTPException(429, "הגעתם למספר השליחות היומי")
+            e = Q.get_email(repo.s, scope(repo, u), eid)
+            if e is None:
+                raise HTTPException(404, "not found")
+            mb = sender_mailbox(repo, u, e)
+            if mb is None:
+                raise HTTPException(400, "כדי לשלוח צריך קודם לחבר את תיבת ה-Gmail שלכם")
+            keys = [a.attachment_key for a in e.attachments or [] if a.filename]
+            if not keys or e.mailbox_id is None:
+                raise HTTPException(400, "אין קובץ לשלוח במסמך הזה")
+            card = Q.email_card(e)
+            src_mailbox, message_id, from_email, from_mid = (e.mailbox_id, e.message_id,
+                                                              mb.email, mb.id)
+        web.manual_sends.hit(str(u.id))
+
+        def work() -> None:
+            files = web.engine.message_files(src_mailbox, message_id, keys)
+            msg = EmailMessage()
+            title = " ".join(x for x in [card["supplier"], card["invoice_number"] or ""] if x)
+            msg["Subject"] = re.sub(r"\s+", " ", f"לטיפולך: {title}")[:200]
+            msg["From"] = from_email
+            msg["To"] = to
+            lines = [f"שלום{(' ' + label) if label and '@' not in label else ''},", "",
+                     "מצורף מסמך לטיפולך:", f"ספק: {card['supplier']}"]
+            if card["invoice_number"]:
+                lines.append(f"מספר: {card['invoice_number']}")
+            if card["total"] is not None:
+                lines.append(f"סכום: {card['total']} {card['currency'] or ''}".strip())
+            if card["received_at"]:
+                lines.append(f"התקבל: {card['received_at'][:10]}")
+            if note:
+                lines += ["", note]
+            lines += ["", u.name]
+            msg.set_content("\n".join(lines))
+            for fname, data, mime in files:
+                if not re.fullmatch(r"[\w.+-]+/[\w.+-]+", mime or ""):
+                    mime = "application/octet-stream"
+                maintype, _, subtype = mime.partition("/")
+                msg.add_attachment(data, maintype=maintype, subtype=subtype,
+                                   filename=re.sub(r"[\r\n]+", " ", fname or "file"))
+            web.engine.send_from(from_mid, msg.as_bytes())
+
+        try:
+            await run_in_threadpool(work)
+        except MailboxUnavailable as exc:
+            raise HTTPException(409, "תיבת ה-Gmail לא מחוברת כרגע. חברו אותה מחדש ונסו שוב") \
+                from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "הקובץ לא נמצא במייל (אולי נמחק)") from exc
+        except Exception as exc:
+            log.warning("Manual send failed: %s", type(exc).__name__)
+            raise HTTPException(502, "השליחה נכשלה. נסו שוב בעוד רגע") from exc
+        with web.db.repo() as repo:
+            repo.s.add(ManualSend(org_id=u.org_id, email_id=eid, user_id=u.id, to_email=to,
+                                  to_label=label, from_email=from_email))
+        log.info("User %s sent document %s on by hand", u.id, eid)
+        return {"ok": True, "from": from_email}
 
     @r.get("/api/files/{aid}")
     def view_file(aid: int, download: int = 0, u: User = Depends(member)):
@@ -741,6 +858,8 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
             filename = att.filename or "file"
         try:
             data, mime = web.engine.fetch_attachment(mailbox_id, message_id, key)
+        except MailboxUnavailable as exc:
+            raise HTTPException(409, "התיבה שקיבלה את המסמך לא מחוברת כרגע") from exc
         except FileNotFoundError as exc:
             raise HTTPException(404, "הקובץ לא נמצא במייל (אולי נמחק)") from exc
         except Exception as exc:

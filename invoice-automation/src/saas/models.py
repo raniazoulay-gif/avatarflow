@@ -117,3 +117,18 @@ class EmailView(Base):
     email_id: Mapped[int] = mapped_column(Integer, index=True)
     user_id: Mapped[int] = mapped_column(Integer, index=True)
     viewed_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class ManualSend(Base):
+    """A document a person chose to send on ("העבר לגורם מטפל")."""
+
+    __tablename__ = "manual_sends"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    org_id: Mapped[int] = mapped_column(Integer, index=True)
+    email_id: Mapped[int] = mapped_column(Integer, index=True)
+    user_id: Mapped[int] = mapped_column(Integer)
+    to_email: Mapped[str] = mapped_column(String(320))
+    to_label: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    from_email: Mapped[str] = mapped_column(String(320))
+    sent_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)

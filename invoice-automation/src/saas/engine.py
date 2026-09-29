@@ -263,7 +263,7 @@ class SaasEngine:
                   "from": start.date().isoformat(),
                   "to": (end - timedelta(seconds=1)).date().isoformat(),
                   "total": 0, "done": 0, "found": 0, "invoices": 0, "review": 0,
-                  "error": None}
+                  "not_invoice": 0, "no_attachments": 0, "errors": 0, "error": None}
             self.scan_status[user_id] = st
 
         def run():
@@ -288,6 +288,9 @@ class SaasEngine:
                         st["found"] += res.get("found", 0)
                         st["invoices"] += sum(v for k, v in res.items() if k in INVOICE_RESULTS)
                         st["review"] += sum(v for k, v in res.items() if k in REVIEW_RESULTS)
+                        st["not_invoice"] += res.get("NOT_INVOICE", 0)
+                        st["no_attachments"] += res.get("NO_ATTACHMENTS", 0)
+                        st["errors"] += res.get("ERROR", 0)
                         self._mark(mb.id, "active", None)
                     except Exception as exc:
                         reason = describe_auth_error(exc)

@@ -60,7 +60,7 @@ main{padding:24px 26px 40px;display:flex;flex-direction:column;gap:20px;min-widt
 .banner.bad{background:var(--badsoft);color:var(--bad)}
 .hello{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap}.hello h1{font-size:27px}
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
-.kpi{padding:18px 20px}.kpi .h{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:14px;gap:8px}
+.kpi{padding:18px 20px}.kpi.click{cursor:pointer;transition:transform .15s,box-shadow .15s}.kpi.click:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(124,58,237,.14)}.kpi.click .d::after{content:' ›';font-weight:700}.kpi .h{display:flex;align-items:center;justify-content:space-between;color:var(--muted);font-size:14px;gap:8px}
 .kpi .ic{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none}
 .kpi .v{font-family:'Space Grotesk',sans-serif;font-size:34px;font-weight:700;margin-top:6px}
 .kpi .d{font-size:12.5px;margin-top:2px;color:var(--muted)}
@@ -142,7 +142,7 @@ const av=(name)=>{name=String(name||'?');let h=0;for(const c of name)h=(h*31+c.c
 const money=(v,c)=>v==null?'':((!c||['ILS','NIS'].includes(String(c).toUpperCase()))?'₪':esc(c)+' ')+Number(v).toLocaleString('en-US',{maximumFractionDigits:0});
 const dt=s=>{if(!s)return'';const d=new Date(s);return d.toLocaleDateString('he-IL',{day:'numeric',month:'numeric'})};
 const dtt=s=>{if(!s)return'';const d=new Date(s);return d.toLocaleString('he-IL',{day:'numeric',month:'numeric',hour:'2-digit',minute:'2-digit'})};
-const BUCKET={invoice:['חשבונית','c-ok'],review:['לבדיקה','c-warn'],not_invoice:['לא חשבונית','c-mut'],error:['שגיאה','c-bad'],pending:['בתהליך','c-mut']};
+const BUCKET={no_attachments:['בלי קובץ','c-mut'],invoice:['חשבונית','c-ok'],review:['לבדיקה','c-warn'],not_invoice:['לא חשבונית','c-mut'],error:['שגיאה','c-bad'],pending:['בתהליך','c-mut']};
 const bchip=b=>{const x=BUCKET[b]||BUCKET.pending;return `<span class="chip ${x[1]}">${x[0]}</span>`};
 const score=d=>`<span class="chip c-ai">${i('spark','width:14px;height:14px')}<span class="en num">${Number(d.score)|0}%</span></span>`;
 const ft=d=>`<span class="ft ${esc(d.file_type)}">${esc(d.file_type)}</span>`;
@@ -295,7 +295,7 @@ function bars(vals,labels,hi){
 const WD=['ב׳','ג׳','ד׳','ה׳','ו׳','ש׳','א׳']; // python weekday(): Monday=0
 
 /* ---------------- views ---------------- */
-function kpi(label,val,ic,col,soft,delta){return `<div class="card kpi"><div class="h">${label}<span class="ic" style="background:${soft};color:${col}">${i(ic)}</span></div><div class="v num">${val}</div>${delta?`<div class="d">${delta}</div>`:''}</div>`;}
+function kpi(label,val,ic,col,soft,delta,go){return `<div class="card kpi${go!==undefined?' click':''}"${go!==undefined?` data-kf="${go}" role="button" tabindex="0" title="הצגת המסמכים"`:''}><div class="h">${label}<span class="ic" style="background:${soft};color:${col}">${i(ic)}</span></div><div class="v num">${val}</div>${delta?`<div class="d">${delta}</div>`:''}</div>`;}
 function banners(){
   let h='';const m=S.me;const p=new URLSearchParams(location.search);
   if(p.get('connected')){toast('התיבה חוברה! מעכשיו כל מייל חדש נבדק אוטומטית');history.replaceState(null,'','/app#'+S.view);setTimeout(openScan,400);}
@@ -323,7 +323,7 @@ async function vDash(){
   const queue=d.review_queue.length?d.review_queue.map(x=>`<div class="it">${ft(x)}<div class="grow" data-open="${x.id}" style="cursor:pointer"><div class="t1">${esc(x.supplier)}</div><div class="t2">${x.invoice_number?'חשבונית '+esc(x.invoice_number)+' · ':''}<span class="num">${money(x.total,x.currency)}</span>${isMgr()&&x.owner?' · אצל '+esc(x.owner):''}</div></div>${score(x)}<button class="btn sm" data-rv="${x.id}" data-d="invoice">${i('check','width:16px;height:16px')}חשבונית</button><button class="btn sm ghost" data-rv="${x.id}" data-d="not_invoice">לא</button></div>`).join(''):'<p class="muted">אין מסמכים לבדיקה.</p>';
   let h=`<div class="hello"><div><h1>שלום, ${esc(hello)} 👋</h1><p class="muted" style="margin:6px 0 0">${isMgr()?'סיכום של כל הצוות':'המסמכים מהתיבה שלך'} · היום טופלו ${d.today_documents} מסמכים</p></div>
     <button class="btn" style="margin-right:auto" id="scan">${i('scan')}סרוק עכשיו</button></div>
-   <div class="kpis">${kpi('מסמכים החודש',d.month_documents,'file','#0891B2','var(--c1soft)','עם קובץ מצורף')}${kpi('זוהו כחשבונית',d.month_invoices,'send','var(--c2)','var(--c2soft)',d.auto_rate+'% מהמסמכים')}${kpi('ממתינים לבדיקה',d.review_pending,'clock','var(--warn)','var(--warnsoft)','ודאות בינונית')}${kpi(isMgr()?'שעות שהצוות חסך':'שעות שחסכת',d.hours_saved,'spark','var(--ok)','var(--oksoft)','החודש, הערכה')}</div>`;
+   <div class="kpis">${kpi('מסמכים החודש',d.month_documents,'file','#0891B2','var(--c1soft)','לכל המסמכים','')}${kpi('זוהו כחשבונית',d.month_invoices,'send','var(--c2)','var(--c2soft)',d.auto_rate+'% מהמסמכים','invoice')}${kpi('ממתינים לבדיקה',d.review_pending,'clock','var(--warn)','var(--warnsoft)','לבדיקה עכשיו','review')}${kpi(isMgr()?'שעות שהצוות חסך':'שעות שחסכת',d.hours_saved,'spark','var(--ok)','var(--oksoft)','החודש, הערכה')}</div>`;
   if(isMgr()&&d.team){
     const alert=d.team.filter(r=>r.review>=4);
     if(alert.length) h+=`<div class="banner">${i('alert')}${alert.map(a=>esc(a.name)).join(', ')}: 4 מסמכים או יותר ממתינים לבדיקה.</div>`;
@@ -338,7 +338,7 @@ async function vDash(){
 async function vInbox(){
   const p=new URLSearchParams({bucket:S.filter,q:S.q,offset:S.offset});
   const d=await api('/api/emails?'+p);
-  const F=[['','הכל'],['invoice','חשבוניות'],['review','לבדיקה'],['not_invoice','לא חשבונית'],['error','שגיאות']];
+  const F=[['','כל המסמכים'],['invoice','חשבוניות'],['review','לבדיקה'],['not_invoice','לא חשבונית'],['error','שגיאות'],['no_attachments','מיילים בלי קובץ']];
   const rows=d.items.map(x=>`<tr class="click" data-open="${x.id}"><td><b>${esc(x.supplier)}</b><div class="t2">${esc(x.subject).slice(0,70)}</div></td><td class="num">${money(x.total,x.currency)}</td><td>${ft(x)}</td><td>${score(x)}</td><td>${bchip(x.bucket)}</td>${isMgr()?`<td>${esc(x.owner)}</td>`:''}<td class="num muted">${dt(x.received_at)}</td></tr>`).join('');
   return `<div class="filters">${F.map(([k,l])=>`<button class="${S.filter===k?'on':''}" data-f="${k}">${l}</button>`).join('')}</div>
    ${d.items.length?`<div class="card tbl"><table><thead><tr><th>ספק / נושא</th><th>סכום</th><th>קובץ</th><th>ודאות AI</th><th>סטטוס</th>${isMgr()?'<th>עובד/ת</th>':''}<th>תאריך</th></tr></thead><tbody>${rows}</tbody></table></div>`:emptyState('לא נמצאו מסמכים.')}
@@ -458,10 +458,15 @@ async function scanProgress(){
    <p class="t2">${dt(st.from)} – ${dt(st.to)}</p>
    <div class="pbar"><i style="width:${pct}%"></i></div>
    <p class="t2">${st.total?`טופלו <b class="num">${st.done}</b> מתוך <b class="num">${st.total}</b> מיילים חדשים`:(st.running?'מחפשים מיילים בטווח שבחרתם…':'לא נמצאו מיילים חדשים לטיפול בטווח הזה')}</p>
-   <div class="grid2" style="margin-top:12px;gap:10px"><div class="card pane" style="padding:14px"><div class="t2">חשבוניות שזוהו</div><div class="num" style="font-size:26px;font-weight:700">${st.invoices}</div></div>
-   <div class="card pane" style="padding:14px"><div class="t2">ממתינים לבדיקה שלכם</div><div class="num" style="font-size:26px;font-weight:700">${st.review}</div></div></div>
-   ${st.error?`<div class="banner bad" style="margin-top:12px">${i('alert')}${esc(st.error)}</div>`:''}
-   <div style="display:flex;gap:10px;margin-top:16px">${st.running?`<button type="button" class="btn ghost" data-close="1" style="flex:1;height:44px">סגירה (הסריקה תמשיך ברקע)</button>`:`<button type="button" class="btn" data-close="1" data-refresh="1" style="flex:1;height:44px">${i('check')}סיום</button>`}</div>`;
+   <div class="grid2" style="margin-top:12px;gap:10px"><div class="card pane kpi click" data-kf="invoice" style="padding:14px"><div class="t2">חשבוניות שזוהו</div><div class="num" style="font-size:26px;font-weight:700">${st.invoices}</div></div>
+   <div class="card pane kpi click" data-kf="review" style="padding:14px"><div class="t2">ממתינים לבדיקה שלכם</div><div class="num" style="font-size:26px;font-weight:700">${st.review}</div></div></div>
+   ${st.running?'':`<div class="set" style="margin-top:10px"><span class="grow">מיילים בטווח התאריכים</span><b class="num">${st.found||0}</b></div>
+   <div class="set"><span class="grow">כבר טופלו קודם</span><b class="num">${Math.max(0,(st.found||0)-(st.total||0))}</b></div>
+   <div class="set"><span class="grow">עם קובץ, לא חשבונית</span><b class="num">${st.not_invoice||0}</b></div>
+   <div class="set" data-kf="no_attachments" style="cursor:pointer"><span class="grow">בלי קובץ מצורף (לא נבדקו) ›</span><b class="num">${st.no_attachments||0}</b></div>
+   ${st.errors?`<div class="set"><span class="grow">שגיאות בקריאה</span><b class="num">${st.errors}</b></div>`:''}`}
+   ${st.error?`<div class="banner bad" style="margin-top:12px">${i('alert')}<span class="grow">${/invalid_grant|invalid_scope|RefreshError/.test(st.error)?'החיבור ל-Gmail צריך רענון. לחצו על "חיבור Gmail" ואשרו שוב (מסמנים את כל ההרשאות).':esc(st.error)}</span>${/invalid_grant|invalid_scope|RefreshError/.test(st.error)?'<a class="btn sm" href="/oauth/google/start">חיבור Gmail</a>':''}</div>`:''}
+   <div style="display:flex;gap:10px;margin-top:16px">${st.running?`<button type="button" class="btn ghost" data-close="1" style="flex:1;height:44px">סגירה (הסריקה תמשיך ברקע)</button>`:`<button type="button" class="btn" data-kf="" style="flex:1;height:44px">${i('file')}הצגת כל המסמכים</button><button type="button" class="btn ghost" data-close="1" data-refresh="1" style="height:44px">סגירה</button>`}</div>`;
   if(st.running)setTimeout(scanProgress,2000);
 }
 
@@ -492,6 +497,7 @@ document.addEventListener('click',async e=>{
   const cp=t.closest('[data-copy]');if(cp){copyText(cp.dataset.copy);return;}
   const tg=t.closest('[data-tg]');if(tg){const v=tg.getAttribute('aria-checked')!=='true';tg.setAttribute('aria-checked',v);try{await api('/api/settings',{method:'PUT',json:{[tg.dataset.tg]:v}});toast('נשמר')}catch(x){toast(x.message)}return;}
   if(t.closest('#scan')){openScan();return;}
+  const kf=t.closest('[data-kf]');if(kf){S.filter=kf.dataset.kf;S.offset=0;$('layer').innerHTML='';go('inbox');return;}
   const sp=t.closest('[data-sp]');if(sp){scanPreset(sp.dataset.sp);return;}
   if(t.closest('#scan_go')){startScan();return;}
   if(t.closest('#xls')){window.location='/api/reports/excel';return;}
@@ -513,7 +519,8 @@ document.addEventListener('submit',async e=>{
   if(f.id==='sl'){e.preventDefault();try{const r=await api('/api/admin/signup-link',{json:{note:$('sl_note').value}});$('sl_out').innerHTML=`<div class="copy"><span class="en grow">${esc(r.link)}</span><button type="button" class="btn sm ghost" data-copy="${esc(r.link)}">${i('copy','width:15px;height:15px')}העתקה</button></div><p class="t2">בתוקף ל-14 יום, לשימוש חד-פעמי.</p>`}catch(x){toast(x.message)}}
 });
 document.addEventListener('input',e=>{if(e.target.id==='s_thr')$('thrv').textContent=e.target.value+'%';});
-document.addEventListener('keydown',e=>{if(e.key==='Escape')$('layer').innerHTML='';});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')$('layer').innerHTML='';
+  if((e.key==='Enter'||e.key===' ')&&e.target.matches&&e.target.matches('[data-kf]')){e.preventDefault();e.target.click();}});
 
 /* ---------------- render / boot ---------------- */
 const VIEWS={dash:vDash,inbox:vInbox,docs:vDocs,sup:vSup,reports:vReports,team:vTeam,settings:vSettings,admin:vAdmin};

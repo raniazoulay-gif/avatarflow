@@ -22,7 +22,7 @@ BUCKET = {**{s: "invoice" for s in DETECTED}, **{s: "review" for s in REVIEW},
           EmailStatus.NOT_INVOICE: "not_invoice", EmailStatus.ERROR: "error",
           EmailStatus.PENDING: "pending", EmailStatus.NO_ATTACHMENTS: "no_attachments"}
 FILTERS = {"invoice": DETECTED, "review": REVIEW, "not_invoice": NOT_INV,
-           "error": {EmailStatus.ERROR}}
+           "error": {EmailStatus.ERROR}, "no_attachments": {EmailStatus.NO_ATTACHMENTS}}
 
 
 @dataclass
@@ -99,7 +99,9 @@ def email_card(e: Email, owners: dict[int, str] | None = None) -> dict:
 
 def list_emails(s: Session, scope: Scope, bucket: str | None, q: str | None,
                 limit: int = 50, offset: int = 0) -> tuple[list[dict], int]:
-    stmt = _base(scope).where(Email.status != EmailStatus.NO_ATTACHMENTS)
+    stmt = _base(scope)
+    if bucket != "no_attachments":  # mail without a file is only listed on request
+        stmt = stmt.where(Email.status != EmailStatus.NO_ATTACHMENTS)
     if bucket in FILTERS:
         stmt = stmt.where(Email.status.in_(FILTERS[bucket]))
     if q:

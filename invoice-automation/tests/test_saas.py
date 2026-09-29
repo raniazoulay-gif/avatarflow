@@ -621,3 +621,27 @@ def test_watcher_backfill_range_query(tmp_path):
                            lambda d, t: seen.append((d, t)))
     assert "after:1772323200" in G.q and "before:1775001600" in G.q
     assert res["found"] == 2 and res["DRY_RUN_WOULD_FORWARD"] == 2 and seen[-1] == (2, 2)
+
+
+def test_refresh_keeps_granted_scopes():
+    from src.saas.google_oauth import OAuthClient, build_credentials
+
+    creds = build_credentials(OAuthClient("id", "sec"), "1//r")
+    assert not creds.scopes  # never re-requests a permission the user did not tick
+
+
+def test_no_attachment_mail_listed_only_on_request(app):
+    ctx, a = app
+    admin = _admin_client(ctx, a)
+    mgr = _signup(ctx, a, admin)
+    from datetime import UTC, datetime
+
+    from src.database.models import Email, EmailStatus
+    with ctx.db.repo() as repo:
+        oid = repo.s.scalar(select(Organization.id).where(Organization.name == "Acme"))
+        repo.s.add_all([Email(message_id="n1", org_id=oid, status=EmailStatus.NO_ATTACHMENTS,
+                              received_at=datetime.now(UTC)),
+                        Email(message_id="i1", org_id=oid, status=EmailStatus.NOT_INVOICE,
+                              received_at=datetime.now(UTC))])
+    assert mgr.get("/api/emails").json()["total"] == 1
+    assert mgr.get("/api/emails?bucket=no_attachments").json()["total"] == 1

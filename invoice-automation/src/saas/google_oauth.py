@@ -85,6 +85,7 @@ def exchange_code(client: OAuthClient, code: str, redirect_uri: str,
 def build_credentials(client: OAuthClient, refresh_token: str):
     from google.oauth2.credentials import Credentials
 
+    # No `scopes`: a refresh then keeps exactly what the user granted. Asking for a
+    # fixed list fails with invalid_scope when a permission (e.g. Drive) was not ticked.
     return Credentials(token=None, refresh_token=refresh_token, client_id=client.client_id,
-                       client_secret=client.client_secret, token_uri=TOKEN_URL,
-                       scopes=SCOPES[2:])
+                       client_secret=client.client_secret, token_uri=TOKEN_URL)

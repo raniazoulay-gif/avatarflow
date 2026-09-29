@@ -105,3 +105,15 @@ class Invite(Base):
     used_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     # kind='verify'/'reset': wrong-code attempts (the code is short, so it is capped)
     attempts: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
+
+
+class EmailView(Base):
+    """Who opened which document (the "seen" eye in the inbox) - per user."""
+
+    __tablename__ = "email_views"
+    __table_args__ = (UniqueConstraint("email_id", "user_id", name="uq_email_view"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email_id: Mapped[int] = mapped_column(Integer, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    viewed_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)

@@ -302,6 +302,42 @@ class SaasEngine:
         threading.Thread(target=run, daemon=True).start()
         return True
 
+    def fetch_attachment(self, mailbox_id: int, message_id: str, key: str) -> tuple[bytes, str]:
+        """The original file straight from the user's Gmail (for viewing in the app).
+        Uses its own short-lived Gmail client, so it never waits for a running scan.
+        Gmail attachment ids change between calls, so the message is re-read and the
+        file found by its stable key (part id + filename)."""
+        from google.auth.transport.requests import Request
+        from googleapiclient.discovery import build
+
+        from ..gmail.reader import parse_message
+
+        with self.db.repo() as repo:
+            mb = repo.s.get(Mailbox, mailbox_id)
+            org = repo.s.get(Organization, mb.org_id) if mb else None
+            if mb is None or org is None or mb.status == "paused":
+                raise FileNotFoundError("mailbox not connected")
+            client = self.client_for(org, mb.oauth_app)
+            token = self.vault.decrypt(mb.refresh_token_enc)
+        if client is None or not token:
+            raise FileNotFoundError("mailbox not connected")
+        creds = build_credentials(client, token)
+        creds.refresh(Request())
+        gmail = GmailClient(build("gmail", "v1", credentials=creds, cache_discovery=False),
+                            max_attempts=2, base_delay=self.settings.retry_base_delay_seconds)
+        parsed = parse_message(gmail.get_message(message_id))
+        for a in parsed.attachments:
+            if a.key[:500] != key:
+                continue
+            if a.size and a.size > self.settings.max_attachment_size_mb * 1024 * 1024:
+                raise ValueError("file too large")
+            if a.inline_data is not None:
+                return a.inline_data, a.mime_type
+            if not a.attachment_id:
+                raise FileNotFoundError("attachment has no data")
+            return gmail.get_attachment(message_id, a.attachment_id), a.mime_type
+        raise FileNotFoundError("attachment not in message")
+
     def connected_emails(self) -> set[str]:
         """Every mailbox connected in the web app, whatever its status: once the
         env account is connected there, the org's settings govern it for good."""

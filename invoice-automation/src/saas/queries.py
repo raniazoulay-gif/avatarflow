@@ -115,7 +115,15 @@ def list_emails(s: Session, scope: Scope, bucket: str | None, q: str | None,
     rows = s.scalars(stmt.options(selectinload(Email.classification), selectinload(Email.attachments))
                      .order_by(Email.received_at.desc()).limit(limit).offset(offset))
     owners = mailbox_owner_map(s, scope.org_id)
-    return [email_card(e, owners) for e in rows], total
+    cards = [email_card(e, owners) for e in rows]
+    if cards:
+        from .models import EmailView
+        seen = set(s.scalars(select(EmailView.email_id).where(
+            EmailView.user_id == scope.user_id,
+            EmailView.email_id.in_([c["id"] for c in cards]))))
+        for c in cards:
+            c["seen"] = c["id"] in seen
+    return cards, total
 
 
 def get_email(s: Session, scope: Scope, email_id: int) -> Email | None:
@@ -135,7 +143,9 @@ def email_detail(s: Session, scope: Scope, e: Email) -> dict:
         "vat": c.vat if c else None,
         "reasons": [r.strip() for r in reason.split("|") if r.strip()
                     and not r.strip().startswith(("Duplicate invoice content", "כפילות:"))][:6],
-        "attachments": [{"filename": a.filename, "score": round((a.final_score or 0) * 100),
+        "attachments": [{"id": a.id, "filename": a.filename, "mime_type": a.mime_type or "",
+                         "best": bool(c and a.filename == c.best_attachment),
+                         "score": round((a.final_score or 0) * 100),
                          "drive_file_id": a.drive_file_id, "error": a.error}
                         for a in e.attachments or []],
         "forward": ({"state": e.forward.state, "at": e.forward.forward_timestamp.isoformat()

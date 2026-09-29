@@ -27,13 +27,14 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from starlette.concurrency import run_in_threadpool
 
 from ..config.settings import EMAIL_RE
-from ..database.models import Email, EmailStatus
+from ..database.models import Attachment, Email, EmailStatus
 from . import queries as Q
 from .google_oauth import CALLBACK_PATH, OAuthError, authorization_url, exchange_code
-from .models import Invite, Mailbox, Organization, Role, User
+from .models import EmailView, Invite, Mailbox, Organization, Role, User
 from .security import (
     Signer,
     hash_password,
@@ -714,7 +715,52 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
             e = Q.get_email(repo.s, sc, eid)
             if e is None:
                 raise HTTPException(404, "not found")
-            return Q.email_detail(repo.s, sc, e)
+            d = Q.email_detail(repo.s, sc, e)
+            if u.role != Role.MANAGER:
+                d["reasons"] = []  # the AI's reasoning is for managers only
+            # opening the document marks it as seen by this user
+            if repo.s.scalar(select(EmailView.id).where(EmailView.email_id == e.id,
+                                                        EmailView.user_id == u.id)) is None:
+                try:
+                    with repo.s.begin_nested():  # two tabs at once: the second is a no-op
+                        repo.s.add(EmailView(email_id=e.id, user_id=u.id))
+                except IntegrityError:
+                    pass
+            return d
+
+    @r.get("/api/files/{aid}")
+    def view_file(aid: int, download: int = 0, u: User = Depends(member)):
+        """The original invoice file, fetched from the user's Gmail on demand - so it
+        can be viewed without opening Gmail. Nothing is stored on our servers."""
+        with web.db.repo() as repo:
+            att = repo.s.get(Attachment, aid)
+            e = Q.get_email(repo.s, scope(repo, u), att.email_id) if att else None
+            if att is None or e is None or e.mailbox_id is None:
+                raise HTTPException(404, "not found")
+            mailbox_id, message_id, key = e.mailbox_id, e.message_id, att.attachment_key
+            filename = att.filename or "file"
+        try:
+            data, mime = web.engine.fetch_attachment(mailbox_id, message_id, key)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "הקובץ לא נמצא במייל (אולי נמחק)") from exc
+        except Exception as exc:
+            log.warning("File view failed: %s", type(exc).__name__)
+            raise HTTPException(502, "לא הצלחנו להביא את הקובץ מ-Gmail. נסו שוב") from exc
+        mime = (mime or "").lower()
+        is_pdf = data[:5] == b"%PDF-"  # the bytes decide, never the name or claimed type
+        is_img = mime in ("image/png", "image/jpeg", "image/gif", "image/webp")
+        inline = (is_pdf or is_img) and not download
+        ctype = "application/pdf" if is_pdf else (mime if is_img else "application/octet-stream")
+        from urllib.parse import quote
+
+        headers = {"Content-Disposition": f"{'inline' if inline else 'attachment'}; "
+                                          f"filename*=UTF-8''{quote(filename)}",
+                   "X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=300",
+                   "X-Frame-Options": "SAMEORIGIN", "Referrer-Policy": "same-origin"}
+        if not is_pdf:
+            # anything that is not a PDF can never run script on our site
+            headers["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src 'self'"
+        return Response(data, media_type=ctype, headers=headers)
 
     @r.post("/api/emails/{eid}/review", dependencies=[Depends(csrf)])
     async def review(eid: int, request: Request, u: User = Depends(member)):

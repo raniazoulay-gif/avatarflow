@@ -708,3 +708,47 @@ def test_gate_keeps_real_invoices():
               "פוליסה 55 חשבונית מס 1001 סה\"כ 200"]:
         assert rule_engine.evaluate(t).non_invoice_doc is None, t
     assert rule_engine.evaluate("ההעברה התקבלה - אישור תשלום 500 ש\"ח").non_invoice_doc
+
+
+def test_seen_flag_file_view_and_hidden_ai_reasons(app, monkeypatch):
+    ctx, a = app
+    admin = _admin_client(ctx, a)
+    mgr = _signup(ctx, a, admin)
+    emp = _join(a, mgr)
+    from src.database.models import Attachment, Classification, Email, EmailStatus
+    with ctx.db.repo() as repo:
+        emp_u = repo.s.scalar(select(User).where(User.role == "employee"))
+        mb = Mailbox(org_id=emp_u.org_id, user_id=emp_u.id, email="dana@acme.co.il",
+                     status="active")
+        repo.s.add(mb)
+        repo.s.flush()
+        e = Email(message_id="f1", org_id=emp_u.org_id, mailbox_id=mb.id,
+                  status=EmailStatus.DRY_RUN_WOULD_FORWARD)
+        repo.s.add(e)
+        repo.s.flush()
+        repo.s.add(Classification(email_id=e.id, reason="High confidence | secret AI reason",
+                                  best_attachment="inv.pdf"))
+        repo.s.add(Attachment(email_id=e.id, attachment_key="1:inv.pdf", filename="inv.pdf",
+                              mime_type="application/pdf"))
+        repo.s.add(Attachment(email_id=e.id, attachment_key="2:x.html", filename="x.html",
+                              mime_type="text/html"))
+        eid = e.id
+    assert emp.get("/api/emails").json()["items"][0]["seen"] is False
+    d = emp.get(f"/api/emails/{eid}").json()
+    assert d["reasons"] == []  # employees never see the AI reasoning
+    assert mgr.get(f"/api/emails/{eid}").json()["reasons"]
+    assert emp.get("/api/emails").json()["items"][0]["seen"] is True
+    ids = {x["filename"]: x["id"] for x in d["attachments"]}
+    monkeypatch.setattr(ctx.saas, "fetch_attachment",
+                        lambda mid, msg, key: (b"%PDF-1.4 x" if key.endswith("pdf")
+                                               else b"<script>x</script>", "text/html"
+                                               if key.endswith("html") else "application/pdf"))
+    r = emp.get(f"/api/files/{ids['inv.pdf']}")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/pdf"
+    assert r.headers["content-disposition"].startswith("inline")
+    h = emp.get(f"/api/files/{ids['x.html']}")
+    assert h.headers["content-type"] == "application/octet-stream"
+    assert h.headers["content-disposition"].startswith("attachment")
+    assert "sandbox" in h.headers["content-security-policy"]
+    other = _signup(ctx, a, admin, org_name="Other", email="boss@other.co.il")
+    assert other.get(f"/api/files/{ids['inv.pdf']}").status_code == 404

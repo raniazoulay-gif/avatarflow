@@ -565,3 +565,59 @@ def test_signup_hardening(app, monkeypatch):
     assert web(a).post("/api/auth/login", json={"email": "m2@acme.co.il",
                                                 "password": r.json()["temp_password"]},
                        headers=H).status_code == 401
+
+
+def test_scan_uses_the_dates_the_user_picked(app, monkeypatch):
+    ctx, a = app
+    admin = _admin_client(ctx, a)
+    mgr = _signup(ctx, a, admin)
+    assert mgr.post("/api/scan", json={"from": "2026-01-01", "to": "2026-01-31"},
+                    headers=H).status_code == 400  # no mailbox yet
+    with ctx.db.repo() as repo:
+        u = repo.s.scalar(select(User).where(User.email == "boss@acme.co.il"))
+        mb = Mailbox(org_id=u.org_id, user_id=u.id, email="boss@acme.co.il", status="active")
+        other = Mailbox(org_id=u.org_id, user_id=None, email="x@acme.co.il", status="active")
+        repo.s.add_all([mb, other])
+        repo.s.flush()
+        mid = mb.id
+    calls = []
+    monkeypatch.setattr(ctx.saas, "scan_range",
+                        lambda uid, mids, start, end: calls.append((mids, start, end)) or True)
+    assert mgr.post("/api/scan", json={"from": "2026-02-01", "to": "2026-01-01"},
+                    headers=H).status_code == 400
+    assert mgr.post("/api/scan", json={"from": "2020-01-01", "to": "2026-01-01"},
+                    headers=H).status_code == 400  # over two years
+    r = mgr.post("/api/scan", json={"from": "2026-03-01", "to": "2026-03-31"}, headers=H)
+    assert r.status_code == 200 and r.json()["started"]
+    mids, start, end = calls[-1]
+    assert mids == [mid]  # only the user's own mailbox
+    assert start.date().isoformat() == "2026-03-01" and end.date().isoformat() == "2026-04-01"
+    assert mgr.get("/api/scan/status").json() == {"running": False}
+
+
+def test_watcher_backfill_range_query(tmp_path):
+    from datetime import UTC, datetime
+
+    from src.gmail.watcher import Watcher
+
+    class G:
+        q = None
+
+        def list_message_ids(self, q, max_results=500):
+            G.q = q
+            return ["b", "a"]
+
+    class P:
+        def process_many(self, ids, is_backfill=False):
+            assert is_backfill
+            return {ids[0]: "DRY_RUN_WOULD_FORWARD"}
+
+    from src.database.repository import Database
+    db = Database(f"sqlite:///{tmp_path}/w.db")
+    db.create_all()
+    w = Watcher(make_settings(), db, G(), P(), state_prefix="mbx1:")
+    seen = []
+    res = w.backfill_range(datetime(2026, 3, 1, tzinfo=UTC), datetime(2026, 4, 1, tzinfo=UTC),
+                           lambda d, t: seen.append((d, t)))
+    assert "after:1772323200" in G.q and "before:1775001600" in G.q
+    assert res["found"] == 2 and res["DRY_RUN_WOULD_FORWARD"] == 2 and seen[-1] == (2, 2)

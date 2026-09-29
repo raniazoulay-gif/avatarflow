@@ -19,7 +19,8 @@ import re
 import threading
 import time
 from collections import defaultdict
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from datetime import time as dtime
 from email.message import EmailMessage
 from pathlib import Path
 
@@ -52,6 +53,7 @@ CODE_TTL = 15 * 60
 CODE_MAX_ATTEMPTS = 5
 CODE_DAILY_FAILURES = 10  # wrong codes per email per 24h, across all codes
 TEMP_PASSWORD_HOURS = 72
+MAX_SCAN_DAYS = 731
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 
@@ -642,7 +644,7 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
             if tok.email == (web.settings.source_gmail_account or "").lower():
                 Q.link_legacy_emails(repo.s, org.id, mailbox_id)
         web.engine.invalidate(mailbox_id)
-        web.engine.start_initial_scan(mailbox_id, days=7)
+        web.engine.start_initial_scan(mailbox_id)  # new mail only; history by user choice
         return RedirectResponse("/app?connected=1", status_code=303)
 
     @r.post("/api/mailboxes/{mid}/pause", dependencies=[Depends(csrf)])
@@ -657,8 +659,36 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
         return {"ok": True}
 
     @r.post("/api/scan", dependencies=[Depends(csrf)])
-    def scan(u: User = Depends(member)):
-        return {"ok": True, "started": web.engine.scan_org(u.org_id)}
+    async def scan(request: Request, u: User = Depends(member)):
+        """Scans the user's OWN mailbox(es) for the dates they picked (history scan,
+        never forwarded to the accountant)."""
+        d = await body(request)
+        tz = web.settings.tz
+        today = datetime.now(tz).date()
+        try:
+            d_from = date.fromisoformat(str(d.get("from")))
+            d_to = date.fromisoformat(str(d.get("to") or today.isoformat()))
+        except ValueError as exc:
+            raise HTTPException(400, "בחרו תאריך התחלה ותאריך סיום") from exc
+        d_to = min(d_to, today)
+        if d_from > d_to:
+            raise HTTPException(400, "תאריך ההתחלה אחרי תאריך הסיום")
+        if (d_to - d_from).days > MAX_SCAN_DAYS:
+            raise HTTPException(400, "אפשר לסרוק עד שנתיים אחורה בכל פעם")
+        start = datetime.combine(d_from, dtime.min, tz)
+        end = datetime.combine(d_to + timedelta(days=1), dtime.min, tz)
+        with web.db.repo() as repo:
+            mids = list(repo.s.scalars(select(Mailbox.id).where(
+                Mailbox.user_id == u.id, Mailbox.status.in_(("active", "error")))))
+        if not mids:
+            raise HTTPException(400, "קודם חברו את תיבת ה-Gmail שלכם")
+        started = web.engine.scan_range(u.id, mids, start, end)
+        return {"ok": True, "started": started}
+
+    @r.get("/api/scan/status")
+    def scan_status(u: User = Depends(member)):
+        st = web.engine.scan_status.get(u.id)
+        return dict(st) if st else {"running": False}
 
     # ------------------------------------------------------------ data
     def scope(repo, u: User) -> Q.Scope:

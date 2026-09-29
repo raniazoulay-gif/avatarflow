@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
@@ -58,6 +58,10 @@ class Runtime:
     processor: Processor
 
 
+INVOICE_RESULTS = {"DRY_RUN_WOULD_FORWARD", "FORWARDED", "FORWARD_BLOCKED"}
+REVIEW_RESULTS = {"REVIEW", "NEW_SUPPLIER_REVIEW"}
+
+
 class SaasEngine:
     def __init__(self, settings: Settings, db, ai, extractor, vault: Vault) -> None:
         self.settings = settings
@@ -70,6 +74,8 @@ class SaasEngine:
         # The Gmail/Drive HTTP clients are not thread-safe: one user at a time per mailbox.
         self._mb_locks: dict[int, threading.RLock] = {}
         self._scanning: set[int] = set()
+        # user_id -> live status of the range scan that user started
+        self.scan_status: dict[int, dict] = {}
 
     def mailbox_lock(self, mailbox_id: int) -> threading.RLock:
         with self._lock:
@@ -173,10 +179,17 @@ class SaasEngine:
 
     def poll_mailbox(self, mb: Mailbox, org: Organization, *, backfill_days: int = 0) -> dict:
         try:
-            with self.mailbox_lock(mb.id):
+            lock = self.mailbox_lock(mb.id)
+            # The scheduler goes through every mailbox in turn: never wait on one that
+            # is busy (e.g. a user's history scan) - it is picked up on the next round.
+            if not lock.acquire(blocking=bool(backfill_days)):
+                return {}
+            try:
                 rt = self.runtime(mb, org)
                 res = (rt.watcher.backfill(backfill_days) if backfill_days
                        else rt.watcher.poll_once())
+            finally:
+                lock.release()
             self._mark(mb.id, "active", None)
             return res
         except Exception as exc:
@@ -222,8 +235,9 @@ class SaasEngine:
         threading.Thread(target=run, daemon=True).start()
         return True
 
-    def start_initial_scan(self, mailbox_id: int, days: int = 7) -> None:
-        """After connecting: look back a few days (never forwards - backfill)."""
+    def start_initial_scan(self, mailbox_id: int, days: int = 0) -> None:
+        """After connecting: prepare labels and start watching NEW mail only.
+        Older mail is scanned only for the dates the user picks (scan_range)."""
         def run():
             for mb, org in self.active_mailboxes():
                 if mb.id == mailbox_id:
@@ -233,9 +247,57 @@ class SaasEngine:
                     except Exception as exc:
                         log.warning("Label setup failed for mailbox %s: %s", mailbox_id,
                                     type(exc).__name__)
-                    self.poll_mailbox(mb, org, backfill_days=days)
+                    if days:
+                        self.poll_mailbox(mb, org, backfill_days=days)
                     self.poll_mailbox(mb, org)
         threading.Thread(target=run, daemon=True).start()
+
+    def scan_range(self, user_id: int, mailbox_ids: list[int], start: datetime,
+                   end: datetime) -> bool:
+        """The user's own "scan" with the dates they chose. One at a time per user."""
+        with self._lock:
+            cur = self.scan_status.get(user_id)
+            if cur and cur.get("running"):
+                return False
+            st = {"running": True, "start": start.isoformat(), "end": end.isoformat(),
+                  "from": start.date().isoformat(),
+                  "to": (end - timedelta(seconds=1)).date().isoformat(),
+                  "total": 0, "done": 0, "found": 0, "invoices": 0, "review": 0,
+                  "error": None}
+            self.scan_status[user_id] = st
+
+        def run():
+            try:
+                for mb, org in self.active_mailboxes():
+                    if mb.id not in mailbox_ids:
+                        continue
+                    base = st["done"]
+
+                    def progress(done, total, base=base):
+                        if done == 0:
+                            st["total"] += total
+                        st["done"] = base + done
+                    try:
+                        lock = self.mailbox_lock(mb.id)
+                        with lock:
+                            rt = self.runtime(mb, org)
+                        # the lock is taken per message, so labels/emails for this
+                        # mailbox are never blocked for the whole scan
+                        res = rt.watcher.backfill_range(start, end, progress,
+                                                        guard=lambda lk=lock: lk)
+                        st["found"] += res.get("found", 0)
+                        st["invoices"] += sum(v for k, v in res.items() if k in INVOICE_RESULTS)
+                        st["review"] += sum(v for k, v in res.items() if k in REVIEW_RESULTS)
+                        self._mark(mb.id, "active", None)
+                    except Exception as exc:
+                        reason = describe_auth_error(exc)
+                        log.error("Range scan of mailbox %s failed: %s", mb.id, reason)
+                        self.invalidate(mb.id)
+                        st["error"] = reason[:300]
+            finally:
+                st["running"] = False
+        threading.Thread(target=run, daemon=True).start()
+        return True
 
     def connected_emails(self) -> set[str]:
         """Every mailbox connected in the web app, whatever its status: once the

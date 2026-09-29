@@ -94,6 +94,10 @@ input[type=range]{width:100%;accent-color:#7C3AED}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}.row .field{flex:1;min-width:180px}
 .av{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-weight:700;color:#fff;flex:none}
 .scrim{position:fixed;inset:0;background:rgba(15,23,42,.35);z-index:20}
+.modal{position:fixed;inset:0;z-index:21;display:grid;place-items:center;padding:16px;pointer-events:none}
+.modal>.card{pointer-events:auto;width:min(540px,100%);max-height:calc(100vh - 32px);overflow:auto;padding:24px}
+.modal .dates{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.pbar{height:10px;border-radius:10px;background:var(--line);overflow:hidden;margin:14px 0 8px}.pbar i{display:block;height:100%;background:linear-gradient(90deg,#06B6D4,#7C3AED);transition:width .4s}
 .drawer{position:fixed;top:0;bottom:0;left:0;width:min(480px,100%);background:var(--surface);z-index:21;box-shadow:0 0 60px rgba(0,0,0,.25);overflow:auto;padding:22px 22px calc(22px + env(safe-area-inset-bottom,0px))}
 .step{display:flex;gap:12px;align-items:flex-start;position:relative;padding-bottom:16px}
 .step .b{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;flex:none;background:var(--grad);color:#fff}
@@ -197,7 +201,8 @@ function signupStep2(email){
   <button class="btn" style="width:100%;margin-top:18px;height:48px">סיום ההרשמה</button><div class="err" id="er"></div></form>
   <p style="margin-top:16px;font-size:14px"><a href="/signup">שליחת קוד חדש</a></p>`);
   $('f').onsubmit=async e=>{e.preventDefault();$('er').textContent='';if(pwMismatch())return;
-    try{await api('/api/signup',{json:{email,code:$('cd').value,org_name:$('org').value,name:$('nm').value,accountant_email:$('acc').value||null,password:$('pw').value}});history.replaceState(null,'','/app');boot();}catch(x){$('er').textContent=x.message}};
+    try{await api('/api/signup',{json:{email,code:$('cd').value,org_name:$('org').value,name:$('nm').value,accountant_email:$('acc').value||null,password:$('pw').value}});history.replaceState(null,'','/app');
+      await loadMe();if(S.me.org&&!S.me.mailboxes.length&&S.me.org.google_app!=='none'){showConnectStep();return;}boot();}catch(x){$('er').textContent=x.message}};
 }
 function showForgot(){
   authCard(`<h2 style="margin-top:20px;font-size:23px">איפוס סיסמה</h2><p class="muted">נשלח קוד למייל שאיתו נרשמתם.</p>
@@ -220,7 +225,16 @@ function showChangePw(forced){
   <button class="btn" style="width:100%;margin-top:18px;height:48px">שמירה</button><div class="err" id="er"></div></form>
   ${forced?'<p style="margin-top:16px;font-size:14px"><a href="#" data-out="1">התנתקות</a></p>':'<p style="margin-top:16px;font-size:14px"><a href="/app" id="pwback">ביטול</a></p>'}`);
   $('f').onsubmit=async e=>{e.preventDefault();$('er').textContent='';if(pwMismatch())return;
-    try{await api('/api/auth/change-password',{json:{current:$('cur').value,password:$('pw').value}});toast('הסיסמה עודכנה');boot();}catch(x){$('er').textContent=x.message}};
+    try{await api('/api/auth/change-password',{json:{current:$('cur').value,password:$('pw').value}});toast('הסיסמה עודכנה');
+      if(forced){await loadMe();if(S.me.org&&!S.me.mailboxes.length&&S.me.org.google_app!=='none'){showConnectStep();return;}}
+      boot();}catch(x){$('er').textContent=x.message}};
+}
+/* first login: straight to connecting the user's own Gmail */
+function showConnectStep(){
+  authCard(`<h2 style="margin-top:20px;font-size:23px">חיבור תיבת ה-Gmail שלך</h2>
+  <p class="muted">שלב אחרון: מחברים את תיבת המייל כדי שהמערכת תזהה את החשבוניות. תועברו ל-Google לאישור, ומיד אחר כך תבחרו מאיזו תקופה לשאוב חשבוניות.</p>
+  <a class="btn" href="/oauth/google/start" style="width:100%;margin-top:18px;height:48px;justify-content:center">${i('mail')}חיבור Gmail</a>
+  <p style="margin-top:16px;font-size:14px"><a href="/app">אחר כך</a></p>`);
 }
 async function showTokenForm(kind,tok){
   let info={};
@@ -284,7 +298,7 @@ const WD=['ב׳','ג׳','ד׳','ה׳','ו׳','ש׳','א׳']; // python weekday()
 function kpi(label,val,ic,col,soft,delta){return `<div class="card kpi"><div class="h">${label}<span class="ic" style="background:${soft};color:${col}">${i(ic)}</span></div><div class="v num">${val}</div>${delta?`<div class="d">${delta}</div>`:''}</div>`;}
 function banners(){
   let h='';const m=S.me;const p=new URLSearchParams(location.search);
-  if(p.get('connected')){toast('התיבה חוברה! המערכת סורקת עכשיו את 7 הימים האחרונים');history.replaceState(null,'','/app#'+S.view);}
+  if(p.get('connected')){toast('התיבה חוברה! מעכשיו כל מייל חדש נבדק אוטומטית');history.replaceState(null,'','/app#'+S.view);setTimeout(openScan,400);}
   const ce=p.get('connect_error');
   if(ce){const map={no_google_app:'לעסק עדיין לא הוגדר חיבור ל-Google. מנהל העסק צריך להשלים את ההגדרה במסך "הגדרות".',mailbox_in_other_org:'התיבה הזו כבר מחוברת לעסק אחר.',no_refresh_token:'Google לא החזירה הרשאה קבועה. נסו שוב.',access_denied:'החיבור בוטל.',expired:'תוקף החיבור פג או שהוא הושלם בדפדפן אחר. התחילו שוב מכאן.',user:'החיבור התחיל ממשתמש אחר. היכנסו עם המשתמש שלכם ונסו שוב.',missing_gmail_permission:'צריך לסמן את ההרשאה לקרוא ולנהל מיילים. נסו שוב וסמנו את כל התיבות.'};
     h+=`<div class="banner bad">${i('alert')}${esc(map[ce]||('החיבור נכשל: '+ce))}</div>`;history.replaceState(null,'','/app#'+S.view);}
@@ -401,6 +415,56 @@ async function vAdmin(){
    </tbody></table></div>`;
 }
 
+/* ---------------- scan: the user picks which dates to scan ---------------- */
+const iso=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const SCAN_PRESETS=[['7d','7 ימים אחרונים'],['30d','30 יום אחרונים'],['this','החודש הנוכחי'],['prev','החודש הקודם'],['3m','3 חודשים'],['6m','6 חודשים'],['12m','שנה אחורה']];
+function scanPreset(k){
+  const now=new Date();let f=new Date(now),to=new Date(now);
+  if(k.endsWith('d'))f.setDate(now.getDate()-(parseInt(k)-1));
+  else if(k==='this')f=new Date(now.getFullYear(),now.getMonth(),1);
+  else if(k==='prev'){f=new Date(now.getFullYear(),now.getMonth()-1,1);to=new Date(now.getFullYear(),now.getMonth(),0);}
+  else f=new Date(now.getFullYear(),now.getMonth()-parseInt(k),now.getDate()+1);
+  $('sc_from').value=iso(f);$('sc_to').value=iso(to);
+  document.querySelectorAll('[data-sp]').forEach(b=>b.classList.toggle('on',b.dataset.sp===k));scanSummary();
+}
+function scanSummary(){const a=$('sc_from').value,b=$('sc_to').value;$('sc_sum').textContent=a&&b?`ייסרקו רק מיילים שהגיעו בין ${dt(a)} ל-${dt(b)}.`:'בחרו טווח תאריכים.';}
+async function openScan(){
+  let st={running:false};try{st=await api('/api/scan/status')}catch(x){}
+  const today=iso(new Date());
+  $('layer').innerHTML=`<div class="scrim" data-close="1"></div><div class="modal"><div class="card" role="dialog" aria-label="סריקת חשבוניות">
+   <h3 style="margin:0 0 4px;font-size:20px;display:flex;align-items:center;gap:8px">${i('scan','color:var(--c2)')}סריקת חשבוניות מהמייל</h3>
+   <p class="muted" style="margin:0 0 14px">אתם בוחרים מאיזו תקופה לשאוב חשבוניות. המערכת סורקת רק את התיבה שלכם ורק את התאריכים שבחרתם. מיילים מהעבר לא נשלחים לרואה החשבון; הם נשמרים ומסווגים.</p>
+   <div id="sc_body">
+   <div class="filters">${SCAN_PRESETS.map(([k,l])=>`<button type="button" data-sp="${k}">${l}</button>`).join('')}</div>
+   <div class="dates" style="margin-top:14px"><div class="field"><label for="sc_from">מתאריך</label><input id="sc_from" type="date" max="${today}"></div>
+   <div class="field"><label for="sc_to">עד תאריך</label><input id="sc_to" type="date" max="${today}" value="${today}"></div></div>
+   <p class="t2" id="sc_sum" style="margin-top:10px">בחרו טווח תאריכים.</p>
+   <div style="display:flex;gap:10px;margin-top:16px"><button class="btn" id="scan_go" style="flex:1;height:46px">${i('scan')}התחלת סריקה</button><button type="button" class="btn ghost" data-close="1" style="height:46px">ביטול</button></div>
+   <div class="err" id="sc_er"></div></div></div></div>`;
+  if(st.running)scanProgress();else{scanPreset('30d');}
+  ['sc_from','sc_to'].forEach(id=>$(id)&&$(id).addEventListener('change',()=>{document.querySelectorAll('[data-sp]').forEach(b=>b.classList.remove('on'));scanSummary();}));
+}
+async function startScan(){
+  $('sc_er').textContent='';
+  try{const r=await api('/api/scan',{json:{from:$('sc_from').value,to:$('sc_to').value}});
+    if(!r.started)toast('כבר רצה סריקה. מציגים את ההתקדמות שלה');scanProgress();}
+  catch(x){$('sc_er').textContent=x.message}
+}
+async function scanProgress(){
+  const box=$('sc_body');if(!box)return;
+  let st;try{st=await api('/api/scan/status')}catch(x){return;}
+  const pct=st.total?Math.round(st.done/st.total*100):(st.running?3:100);
+  box.innerHTML=`<p class="t1" style="margin:4px 0 0">${st.running?'סורקים את המייל…':'הסריקה הסתיימה'}</p>
+   <p class="t2">${dt(st.from)} – ${dt(st.to)}</p>
+   <div class="pbar"><i style="width:${pct}%"></i></div>
+   <p class="t2">${st.total?`טופלו <b class="num">${st.done}</b> מתוך <b class="num">${st.total}</b> מיילים חדשים`:(st.running?'מחפשים מיילים בטווח שבחרתם…':'לא נמצאו מיילים חדשים לטיפול בטווח הזה')}</p>
+   <div class="grid2" style="margin-top:12px;gap:10px"><div class="card pane" style="padding:14px"><div class="t2">חשבוניות שזוהו</div><div class="num" style="font-size:26px;font-weight:700">${st.invoices}</div></div>
+   <div class="card pane" style="padding:14px"><div class="t2">ממתינים לבדיקה שלכם</div><div class="num" style="font-size:26px;font-weight:700">${st.review}</div></div></div>
+   ${st.error?`<div class="banner bad" style="margin-top:12px">${i('alert')}${esc(st.error)}</div>`:''}
+   <div style="display:flex;gap:10px;margin-top:16px">${st.running?`<button type="button" class="btn ghost" data-close="1" style="flex:1;height:44px">סגירה (הסריקה תמשיך ברקע)</button>`:`<button type="button" class="btn" data-close="1" data-refresh="1" style="flex:1;height:44px">${i('check')}סיום</button>`}</div>`;
+  if(st.running)setTimeout(scanProgress,2000);
+}
+
 /* ---------------- detail drawer ---------------- */
 async function openDoc(id){
   let d;try{d=await api('/api/emails/'+id)}catch(x){toast(x.message);return;}
@@ -421,13 +485,15 @@ document.addEventListener('click',async e=>{
   const t=e.target;
   const rv=t.closest('[data-rv]');if(rv){rv.disabled=true;try{await api(`/api/emails/${rv.dataset.rv}/review`,{json:{decision:rv.dataset.d}});$('layer').innerHTML='';toast(rv.dataset.d==='invoice'?'סומן כחשבונית':'סומן כ"לא חשבונית"');render();}catch(x){toast(x.message);rv.disabled=false}return;}
   const o=t.closest('[data-open]');if(o){openDoc(o.dataset.open);return;}
-  if(t.closest('[data-close]')){$('layer').innerHTML='';return;}
+  if(t.closest('[data-close]')){const rf=t.closest('[data-refresh]');$('layer').innerHTML='';if(rf)render();return;}
   const f=t.closest('[data-f]');if(f){S.filter=f.dataset.f;S.offset=0;render();return;}
   const pg=t.closest('[data-pg]');if(pg){S.offset=Math.max(0,S.offset+Number(pg.dataset.pg));render();return;}
   const mo=t.closest('[data-mo]');if(mo){S.month=mo.dataset.mo;render();return;}
   const cp=t.closest('[data-copy]');if(cp){copyText(cp.dataset.copy);return;}
   const tg=t.closest('[data-tg]');if(tg){const v=tg.getAttribute('aria-checked')!=='true';tg.setAttribute('aria-checked',v);try{await api('/api/settings',{method:'PUT',json:{[tg.dataset.tg]:v}});toast('נשמר')}catch(x){toast(x.message)}return;}
-  if(t.closest('#scan')){try{const sr=await api('/api/scan',{json:{}});toast(sr.started?'הסריקה התחילה. רעננו בעוד דקה':'כבר רצה סריקה. רעננו בעוד דקה')}catch(x){toast(x.message)}return;}
+  if(t.closest('#scan')){openScan();return;}
+  const sp=t.closest('[data-sp]');if(sp){scanPreset(sp.dataset.sp);return;}
+  if(t.closest('#scan_go')){startScan();return;}
   if(t.closest('#xls')){window.location='/api/reports/excel';return;}
   const rp=t.closest('[data-rpw]');if(rp){if(rp.dataset.sure){try{const r=await api(`/api/team/${rp.dataset.rpw}/reset-password`,{json:{}});$('rpw_out').innerHTML=`<div class="card pane">${loginBox(r,'נוצרה סיסמה ראשונית חדשה. שלחו לעובד:')}</div>`;rp.textContent='איפוס סיסמה';delete rp.dataset.sure;}catch(x){toast(x.message)}}else{rp.dataset.sure=1;rp.textContent='לחצו שוב לאישור';}return;}
   const de=t.closest('[data-deact]');if(de){if(de.dataset.sure){try{await api(`/api/team/${de.dataset.deact}/active`,{json:{active:false}});toast('העובד הושבת');render()}catch(x){toast(x.message)}}else{de.dataset.sure=1;de.textContent='לחצו שוב לאישור';}return;}

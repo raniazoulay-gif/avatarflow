@@ -802,3 +802,20 @@ def test_send_document_to_handler(app, monkeypatch):
     other = _signup(ctx, a, admin, org_name="Other", email="boss@other.co.il")
     assert other.post(f"/api/emails/{eid}/send", json={"to": "x@y.co.il"},
                       headers=H).status_code == 404
+
+
+def test_utility_receipt_scores_full_even_reversed():
+    from src.classification import rule_engine
+    t = ("חברת החשמל לישראל בע\"מ קבלה מספר קבלה - מקור 300071746912 מספר חברה 520000472 "
+         "מספר חשבונית 2026491406938 סה\"כ לתשלום (ש\"ח) 1,384.55 תאריך תשלום 16.09.2026")
+    assert rule_engine.evaluate(t).score == 1.0
+    flipped = "\n".join(w[::-1] for w in t.split(" "))
+    assert rule_engine.evaluate(flipped).score == 1.0
+
+
+def test_reversed_pass_never_bypasses_the_look_alike_gate():
+    from src.classification import rule_engine
+    t = ("אישור תשלום\nTotal amount: 1,200.00 ILS incl. VAT\nDate 01/09/2026\n"
+         "Company No 520000472")
+    assert rule_engine.evaluate(t).non_invoice_doc
+    assert rule_engine.evaluate("ניוזלטר בעמוד הבא").indicators["supplier"] is False

@@ -339,14 +339,14 @@ async function vDash(){
      ${d.team.map(r=>`<tr><td><span style="display:flex;align-items:center;gap:10px">${av(r.name)}<b>${esc(r.name)}</b>${r.role==='manager'?'<span class="chip c-ai">מנהל/ת</span>':''}</span></td><td>${r.mailboxes.length?r.mailboxes.map(m=>`<span class="chip ${m.status==='active'?'c-ok':m.status==='error'?'c-bad':'c-mut'} en">${esc(m.email)}</span>`).join(' '):'<span class="chip c-warn">לא חוברה</span>'}</td><td class="num">${r.today}</td><td class="num">${r.month}</td><td>${r.review?`<span class="chip ${r.review>=4?'c-bad':'c-warn'} num">${r.review}</span>`:'<span class="chip c-ok">0</span>'}</td><td><div style="display:flex;align-items:center;gap:8px"><div class="bar" style="width:100px"><i style="width:${r.auto_rate}%"></i></div><span class="num en">${r.auto_rate}%</span></div></td></tr>`).join('')}
      </tbody></table></div></div>`;
   }
-  h+=`<div class="grid2"><div class="card pane"><h3>${i('clock','color:var(--warn)')}${isMgr()?'ממתינים לבדיקה בצוות':'התור שלי לבדיקה'}<span class="chip c-warn num">${d.review_pending}</span></h3><div class="list">${queue}</div></div>
+  h+=`<div class="grid2"><div class="card pane"><h3>${i('clock','color:var(--warn)')}${isMgr()?'מחכים להחלטה בצוות':'מחכים להחלטה שלי'}<span class="chip c-warn num">${d.review_pending}</span></h3><p class="t2" style="margin:-4px 0 8px">מסמכים שהמערכת לא בטוחה לגביהם. סמנו לכל אחד "חשבונית" או "לא".</p><div class="list">${queue}</div></div>
    <div class="card pane"><h3>${i('chart','color:var(--c2)')}מסמכים ב-7 הימים האחרונים</h3>${week}</div></div>`;
   return h;
 }
 async function vInbox(){
   const p=new URLSearchParams({bucket:S.filter,q:S.q,offset:S.offset});
   const d=await api('/api/emails?'+p);
-  const F=[['','כל המסמכים'],['invoice','חשבוניות'],['review','לבדיקה'],['not_invoice','לא חשבונית'],['duplicate','כפילויות'],['error','שגיאות'],['no_attachments','מיילים בלי קובץ']];
+  const F=[['','כל המסמכים'],['invoice','חשבוניות'],['review','לבדיקה'],['not_invoice','לא חשבונית'],];
   const rows=d.items.map(x=>`<tr class="click${x.seen?'':' new'}" data-open="${x.id}"><td style="width:44px;text-align:center" title="${x.seen?'נצפה':'עוד לא נצפה'}">${x.seen?i('eye','width:19px;height:19px;color:var(--c2)'):i('eyeoff','width:19px;height:19px;color:var(--muted);opacity:.45')}</td><td><b>${esc(x.supplier)}</b><div class="t2">${esc(x.subject).slice(0,70)}</div></td><td class="num">${money(x.total,x.currency)}</td><td>${ft(x)}</td><td>${score(x)}</td><td>${bchip(x.bucket)}</td>${isMgr()?`<td>${esc(x.owner)}</td>`:''}<td class="num muted">${dt(x.received_at)}</td></tr>`).join('');
   return `<div class="filters">${F.map(([k,l])=>`<button class="${S.filter===k?'on':''}" data-f="${k}">${l}</button>`).join('')}</div>
    ${d.items.length?`<div class="card tbl"><table><thead><tr><th title="נצפה">${i('eye','width:17px;height:17px')}</th><th>ספק / נושא</th><th>סכום</th><th>קובץ</th><th>ודאות AI</th><th>סטטוס</th>${isMgr()?'<th>עובד/ת</th>':''}<th>תאריך</th></tr></thead><tbody>${rows}</tbody></table></div>`:emptyState('לא נמצאו מסמכים.')}
@@ -471,7 +471,7 @@ async function scanProgress(){
    ${st.running?'':`<div class="set" style="margin-top:10px"><span class="grow">מיילים בטווח התאריכים</span><b class="num">${st.found||0}</b></div>
    <div class="set"><span class="grow">כבר טופלו קודם</span><b class="num">${Math.max(0,(st.found||0)-(st.total||0))}</b></div>
    <div class="set"><span class="grow">עם קובץ, לא חשבונית</span><b class="num">${st.not_invoice||0}</b></div>
-   <div class="set" data-kf="no_attachments" style="cursor:pointer"><span class="grow">בלי קובץ מצורף (לא נבדקו) ›</span><b class="num">${st.no_attachments||0}</b></div>
+   <div class="set"><span class="grow">בלי קובץ מצורף (לא נבדקו)</span><b class="num">${st.no_attachments||0}</b></div>
    ${st.errors?`<div class="set"><span class="grow">שגיאות בקריאה</span><b class="num">${st.errors}</b></div>`:''}`}
    ${st.error?`<div class="banner bad" style="margin-top:12px">${i('alert')}<span class="grow">${/invalid_grant|invalid_scope|RefreshError/.test(st.error)?'החיבור ל-Gmail צריך רענון. לחצו על "חיבור Gmail" ואשרו שוב (מסמנים את כל ההרשאות).':esc(st.error)}</span>${/invalid_grant|invalid_scope|RefreshError/.test(st.error)?'<a class="btn sm" href="/oauth/google/start">חיבור Gmail</a>':''}</div>`:''}
    <div style="display:flex;gap:10px;margin-top:16px">${st.running?`<button type="button" class="btn ghost" data-close="1" style="flex:1;height:44px">סגירה (הסריקה תמשיך ברקע)</button>`:`<button type="button" class="btn" data-kf="" style="flex:1;height:44px">${i('file')}הצגת כל המסמכים</button><button type="button" class="btn ghost" data-close="1" data-refresh="1" style="height:44px">סגירה</button>`}</div>`;
@@ -518,9 +518,8 @@ function filePreview(d){
 }
 async function openDoc(id){
   let d;try{d=await api('/api/emails/'+id)}catch(x){toast(x.message);return;}
+  const b=d.bucket;
   document.querySelectorAll(`tr[data-open="${Number(id)}"]`).forEach(tr=>{tr.classList.remove('new');const c=tr.firstElementChild;if(c){c.innerHTML=i('eye','width:19px;height:19px;color:var(--c2)');c.title='נצפה';}});
-  const b=d.bucket, done=b==='invoice'?(d.forward&&d.forward.state==='SENT'?6:5):b==='duplicate'?5:b==='review'?4:2;
-  const steps=[['mail','מייל נכנס',dtt(d.received_at)],['scan','זיהוי AI',`ודאות ${d.score}%`],['shield','בדיקה',d.invoice_number?('חשבונית '+d.invoice_number):'פרטי המסמך נקראו'],['tag','תיוג ב-Gmail',b==='review'?'Invoice/Review':(b==='invoice'||b==='duplicate')?'Invoice/Detected':'Invoice/Not-Invoice'],['drive','שמירה ב-Drive',d.drive_file_id?'נשמר':'—'],['send','העברה לרואה החשבון',d.forward?(d.forward.state==='SENT'?'נשלח':d.forward.state):(d.dry_run?'מצב בדיקה – לא נשלח':'—')]];
   $('layer').innerHTML=`<div class="scrim" data-close="1"></div><aside class="drawer" role="dialog" aria-label="פרטי מסמך">
    <div style="display:flex;align-items:center;gap:10px"><h2 style="font-size:20px" class="grow">${esc(d.supplier)}</h2><button class="btn ghost sm" data-close="1" aria-label="סגירה">${i('x','width:16px;height:16px')}</button></div>
    <p class="muted" style="margin:4px 0 14px">${esc(d.subject)}<br><span class="en">${esc(d.sender)}</span>${d.owner?' · תיבה של '+esc(d.owner):''}</p>
@@ -529,7 +528,6 @@ async function openDoc(id){
    ${filePreview(d)}
    ${(d.sends||[]).length?`<div class="card pane" style="margin-top:14px"><h3>${i('send','color:var(--c2)')}הועבר לטיפול</h3>${d.sends.map(x=>`<div class="set"><span class="grow">${x.label?esc(x.label)+' · ':''}<span class="en">${esc(x.to)}</span></span><span class="t2">${dtt(x.at)}${x.by?' · '+esc(x.by):''}</span></div>`).join('')}</div>`:''}
    ${d.reasons.length?`<div class="card pane" style="margin-top:16px"><h3>${i('spark','color:var(--c2)')}למה ה-AI החליט כך</h3><ul style="margin:0;padding-right:18px">${d.reasons.map(r=>`<li style="margin:5px 0">${esc(r)}</li>`).join('')}</ul></div>`:''}
-   <div class="card pane" style="margin-top:14px"><h3>${i('scan','color:#0891B2')}התהליך האוטומטי</h3>${steps.map(([ic,l,s],k)=>`<div class="step ${k<done?'':'pend'}"><span class="b">${i(ic,'width:18px;height:18px')}</span><div><div class="t1">${l}</div><div class="t2">${esc(s)}</div></div></div>`).join('')}</div>
    ${b==='review'?`<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap"><button class="btn" data-rv="${d.id}" data-d="invoice">${i('check')}זו חשבונית</button><button class="btn ghost" data-rv="${d.id}" data-d="not_invoice">זו לא חשבונית</button></div>`
      :(b==='invoice'||b==='duplicate')&&!(d.forward&&d.forward.state==='SENT')?`<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap"><button class="btn ghost" data-rv="${d.id}" data-d="not_invoice">${i('x')}זו לא חשבונית</button></div>`
      :b==='not_invoice'?`<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap"><button class="btn ghost" data-rv="${d.id}" data-d="invoice">${i('check')}זו כן חשבונית</button></div>`:''}

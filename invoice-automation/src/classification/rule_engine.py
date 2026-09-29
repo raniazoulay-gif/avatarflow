@@ -67,8 +67,27 @@ def _amount_near_keyword(text: str) -> bool:
     return False
 
 
+_HEBREW = re.compile(r"[\u0590-\u05FF]")
+_RECEIPT = re.compile(r"(?<!ת)קבלה|\breceipt\b", re.IGNORECASE)
+
+
 def evaluate(text: str) -> RuleResult:
+    """Some Hebrew PDFs store each line in visual order (reversed), so the text is
+    evaluated as extracted and with its Hebrew lines flipped - the better one counts."""
     text = text or ""
+    best = _evaluate(text)
+    if _HEBREW.search(text) and best.score < 1.0 and not best.non_invoice_doc:
+        flipped = "\n".join(line[::-1] if _HEBREW.search(line) else line
+                             for line in text.split("\n"))
+        alt = _evaluate(flipped)
+        if alt.non_invoice_doc:  # the look-alike gate wins in either reading
+            return alt
+        if alt.score > best.score:
+            best = alt
+    return best
+
+
+def _evaluate(text: str) -> RuleResult:
     ind: dict[str, bool] = {}
     matched: list[str] = []
 
@@ -89,7 +108,8 @@ def evaluate(text: str) -> RuleResult:
     ind["date"] = bool(date_val) and bool(_any(_DATE_KW, text) or date_val)
 
     ind["amount"] = _amount_near_keyword(text)
-    ind["vat"] = bool(_any(_VAT, text))
+    # A receipt (קבלה) is not required to show VAT - it counts as complete here.
+    ind["vat"] = bool(_any(_VAT, text)) or bool(m and _RECEIPT.search(text))
     ind["supplier"] = bool(_any(_SUPPLIER, text))
 
     currency = None

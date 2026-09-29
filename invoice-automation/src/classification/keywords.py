@@ -53,6 +53,9 @@ VAT_PATTERNS = [r"מע" + Q + r"מ", r"\bvat\b", r"value\s+added\s+tax", r"\bgst
 SUPPLIER_PATTERNS = [
     r"עוסק\s*מורשה", r"עוסק\s*פטור", r"ע\.?\s*מ\.?\s*[:\-]?\s*\d{8,9}",
     r"ח\.?\s*פ\.?\s*[:\-]?\s*\d{8,9}", r"ח\.פ\.", r"ע\.מ\.", r"ת\.?ז\.?\s*\d{9}",
+    r"[חע]" + Q + r"[פמ]\s*[:\-]?\s*\d{8,9}",  # ח"פ / ע"מ with gershayim
+    r"מספר\s*(?:חברה|עוסק|תאגיד)\s*[:\-]?\s*\d{8,9}", r"עוסקים\s*(?:מס" + Q + r")?\s*\d{8,9}",
+    r"בע[\"'״׳]מ(?![\u0590-\u05FF])",  # בע"מ - the quote is required (not "בעמוד")
     r"bill\s+to", r"billed\s+to", r"supplier", r"vendor", r"sold\s+by",
     r"vat\s*(?:reg(?:istration)?\.?)?\s*(?:no\.?|number|id)", r"company\s+(?:no|number|reg)",
     r"tax\s+id", r"\bein\b",

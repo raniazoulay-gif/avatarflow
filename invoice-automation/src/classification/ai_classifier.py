@@ -92,6 +92,8 @@ certificates (אישור ניכוי מס), booking confirmations, e-tickets and 
 A document is an invoice only when it is issued by a supplier AS an invoice or receipt
 (it calls itself חשבונית / קבלה / invoice / receipt and has an invoice/receipt number).
 For these non-invoice documents answer is_invoice=false with invoice_type "none".
+A supplier's RECEIPT (קבלה) for a payment IS an invoice-type document (is_invoice=true,
+invoice_type "receipt") - e.g. a utility company's קבלה, even without VAT.
 
 Respond with a single JSON object and NOTHING else, using exactly these keys:
 {"is_invoice": bool, "confidence": number 0..1, "invoice_type": one of

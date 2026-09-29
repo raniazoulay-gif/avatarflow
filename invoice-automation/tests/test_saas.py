@@ -869,3 +869,45 @@ def test_recheck_keeps_decision_when_gmail_unreadable():
     h.gmail.fail_get.add("m1")
     assert h.processor.reclassify("m1") is None
     assert h.email("m1").status == EmailStatus.DRY_RUN_WOULD_FORWARD
+
+
+def test_scan_last_hour_and_live_part(app, monkeypatch, tmp_path):
+    ctx, a = app
+    admin = _admin_client(ctx, a)
+    mgr = _signup(ctx, a, admin)
+    with ctx.db.repo() as repo:
+        u = repo.s.scalar(select(User).where(User.email == "boss@acme.co.il"))
+        repo.s.add(Mailbox(org_id=u.org_id, user_id=u.id, email="boss@acme.co.il",
+                           status="active"))
+    calls = []
+    monkeypatch.setattr(ctx.saas, "scan_range",
+                        lambda uid, mids, start, end: calls.append((start, end)) or True)
+    assert mgr.post("/api/scan", json={"hours": 1}, headers=H).status_code == 200
+    start, end = calls[-1]
+    assert 3500 < (end - start).total_seconds() < 3700
+    assert mgr.post("/api/scan", json={"hours": 999}, headers=H).status_code == 400
+
+    # mail after live monitoring started is processed like the live poll (not history)
+    from datetime import UTC, datetime, timedelta
+
+    from src.database.repository import Database
+    from src.gmail.watcher import Watcher
+
+    class G:
+        def list_message_ids(self, q, max_results=500):
+            return ["new1"] if "before:" in q and int(q.split("after:")[1].split()[0]) >= \
+                live_start else ["old1"]
+
+    seen = {}
+
+    class P:
+        def process_many(self, ids, is_backfill=False):
+            seen[ids[0]] = is_backfill
+            return {ids[0]: "NOT_INVOICE"}
+
+    db = Database(f"sqlite:///{tmp_path}/w2.db")
+    db.create_all()
+    w = Watcher(make_settings(), db, G(), P(), state_prefix="mbx9:")
+    live_start = w.monitor_start_epoch()
+    w.backfill_range(datetime.now(UTC) - timedelta(days=3), datetime.now(UTC) + timedelta(hours=1))
+    assert seen == {"old1": True, "new1": False}

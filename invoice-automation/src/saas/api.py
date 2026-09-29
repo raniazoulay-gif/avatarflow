@@ -670,6 +670,16 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
         d = await body(request)
         tz = web.settings.tz
         today = datetime.now(tz).date()
+        hours = d.get("hours")
+        if hours is not None:  # "last hour": an exact time window up to now
+            try:
+                h = int(hours)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(400, "טווח שעות לא תקין") from exc
+            if not 1 <= h <= 72:
+                raise HTTPException(400, "טווח שעות לא תקין")
+            now = datetime.now(tz)
+            return await start_scan(u, now - timedelta(hours=h), now + timedelta(minutes=1))
         try:
             d_from = date.fromisoformat(str(d.get("from")))
             d_to = date.fromisoformat(str(d.get("to") or today.isoformat()))
@@ -682,6 +692,9 @@ def create_router(ctx) -> tuple[APIRouter, Web]:
             raise HTTPException(400, "אפשר לסרוק עד שנתיים אחורה בכל פעם")
         start = datetime.combine(d_from, dtime.min, tz)
         end = datetime.combine(d_to + timedelta(days=1), dtime.min, tz)
+        return await start_scan(u, start, end)
+
+    async def start_scan(u: User, start: datetime, end: datetime) -> dict:
         with web.db.repo() as repo:
             mids = list(repo.s.scalars(select(Mailbox.id).where(
                 Mailbox.user_id == u.id, Mailbox.status.in_(("active", "error")))))

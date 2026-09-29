@@ -80,20 +80,32 @@ class Watcher:
 
     def backfill_range(self, start: datetime, end: datetime, progress=None,
                        guard=None) -> dict[str, int]:
-        """Scan a date range the user picked (history, never forwarded).
+        """Scan a range the user picked. Mail from before live monitoring started is
+        history (never forwarded); mail from after it is handled exactly as the live
+        poll would handle it - so "last hour" / "today" work too.
         progress(done, total) is called as messages are handled; guard() returns a
         context manager held around each Gmail call (shared client, not thread-safe)."""
         from contextlib import nullcontext
 
         guard = guard or nullcontext
-        # Mail from the moment live monitoring started belongs to the live poll (which
-        # may forward it); the history scan never touches it.
-        end_ts = min(int(end.timestamp()), self.monitor_start_epoch())
+        s_ts, e_ts, live_ts = int(start.timestamp()), int(end.timestamp()), \
+            self.monitor_start_epoch()
         with self._lock:
-            q = f"after:{int(start.timestamp())} before:{end_ts} {BASE_QUERY}"
-            with guard():
-                ids = self.gmail.list_message_ids(q, max_results=5000)
-            ids.reverse()
+            ids: list[str] = []
+            live: set[str] = set()
+            if s_ts < min(e_ts, live_ts):
+                with guard():
+                    part = self.gmail.list_message_ids(
+                        f"after:{s_ts} before:{min(e_ts, live_ts)} {BASE_QUERY}",
+                        max_results=5000)
+                ids += list(reversed(part))
+            if e_ts > live_ts:
+                with guard():
+                    part = self.gmail.list_message_ids(
+                        f"after:{max(s_ts, live_ts)} before:{e_ts} {BASE_QUERY}",
+                        max_results=5000)
+                live = set(part)
+                ids += [i for i in reversed(part) if i not in ids]
             with self.db.repo() as repo:
                 todo = [i for i in ids
                         if repo.needs_processing(i, self.settings.max_processing_attempts)]
@@ -103,7 +115,8 @@ class Watcher:
             results: dict[str, int] = {}
             for k, mid in enumerate(todo, 1):
                 with guard():
-                    st = self.processor.process_many([mid], is_backfill=True).get(mid, "SKIPPED")
+                    st = self.processor.process_many(
+                        [mid], is_backfill=mid not in live).get(mid, "SKIPPED")
                 results[st] = results.get(st, 0) + 1
                 if progress:
                     progress(k, len(todo))

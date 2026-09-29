@@ -440,17 +440,18 @@ async function adminList(kind){
 
 /* ---------------- scan: the user picks which dates to scan ---------------- */
 const iso=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-const SCAN_PRESETS=[['7d','7 ימים אחרונים'],['30d','30 יום אחרונים'],['this','החודש הנוכחי'],['prev','החודש הקודם'],['3m','3 חודשים'],['6m','6 חודשים'],['12m','שנה אחורה']];
+const SCAN_PRESETS=[['1h','השעה האחרונה'],['today','היום'],['7d','7 ימים אחרונים'],['30d','30 יום אחרונים'],['this','החודש הנוכחי'],['prev','החודש הקודם'],['3m','3 חודשים'],['6m','6 חודשים'],['12m','שנה אחורה']];
 function scanPreset(k){
-  const now=new Date();let f=new Date(now),to=new Date(now);
-  if(k.endsWith('d'))f.setDate(now.getDate()-(parseInt(k)-1));
+  const now=new Date();let f=new Date(now),to=new Date(now);S.scanHours=k==='1h'?1:null;
+  if(k==='1h'||k==='today'){}
+  else if(k.endsWith('d'))f.setDate(now.getDate()-(parseInt(k)-1));
   else if(k==='this')f=new Date(now.getFullYear(),now.getMonth(),1);
   else if(k==='prev'){f=new Date(now.getFullYear(),now.getMonth()-1,1);to=new Date(now.getFullYear(),now.getMonth(),0);}
   else f=new Date(now.getFullYear(),now.getMonth()-parseInt(k),now.getDate()+1);
   $('sc_from').value=iso(f);$('sc_to').value=iso(to);
   document.querySelectorAll('[data-sp]').forEach(b=>b.classList.toggle('on',b.dataset.sp===k));scanSummary();
 }
-function scanSummary(){const a=$('sc_from').value,b=$('sc_to').value;$('sc_sum').textContent=a&&b?`ייסרקו רק מיילים שהגיעו בין ${dt(a)} ל-${dt(b)}.`:'בחרו טווח תאריכים.';}
+function scanSummary(){const a=$('sc_from').value,b=$('sc_to').value;if(S.scanHours){$('sc_sum').textContent='ייסרקו רק מיילים שהגיעו בשעה האחרונה.';return;}$('sc_sum').textContent=a&&b?`ייסרקו רק מיילים שהגיעו בין ${dt(a)} ל-${dt(b)}.`:'בחרו טווח תאריכים.';}
 async function openScan(){
   let st={running:false};try{st=await api('/api/scan/status')}catch(x){}
   const today=iso(new Date());
@@ -465,11 +466,11 @@ async function openScan(){
    <div style="display:flex;gap:10px;margin-top:16px"><button class="btn" id="scan_go" style="flex:1;height:46px">${i('scan')}התחלת סריקה</button><button type="button" class="btn ghost" data-close="1" style="height:46px">ביטול</button></div>
    <div class="err" id="sc_er"></div></div></div></div>`;
   if(st.running)scanProgress();else{scanPreset('30d');}
-  ['sc_from','sc_to'].forEach(id=>$(id)&&$(id).addEventListener('change',()=>{document.querySelectorAll('[data-sp]').forEach(b=>b.classList.remove('on'));scanSummary();}));
+  ['sc_from','sc_to'].forEach(id=>$(id)&&$(id).addEventListener('change',()=>{document.querySelectorAll('[data-sp]').forEach(b=>b.classList.remove('on'));S.scanHours=null;scanSummary();}));
 }
 async function startScan(){
   $('sc_er').textContent='';
-  try{const r=await api('/api/scan',{json:{from:$('sc_from').value,to:$('sc_to').value}});
+  try{const r=await api('/api/scan',{json:S.scanHours?{hours:S.scanHours}:{from:$('sc_from').value,to:$('sc_to').value}});
     if(!r.started)toast('כבר רצה סריקה. מציגים את ההתקדמות שלה');scanProgress();}
   catch(x){$('sc_er').textContent=x.message}
 }

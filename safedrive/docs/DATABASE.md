@@ -19,15 +19,15 @@ PostgreSQL 16. The schema is in `database/migrations/*.sql`. Migrations are appl
 | Roads | `road_segments`, `speed_limits`, `provider_cache` | Speed-limit cache by cell + heading bucket, with expiry; negative entries for "no data". |
 | Safety | `safety_events` | Typed events (SPEEDING, HARD_BRAKING, SOS, PHONE_USAGE…), `dedupe_key` unique per trip. |
 | | `speeding_events` | Aggregated episode: start/end, duration, max speed, max excess (km/h and %), peak severity, escalations, road, start/end location. At most one OPEN per trip. |
-| | `safety_scores` | Score history per trip and per driver, with the breakdown JSON. |
-| Notifications | `notifications` | Unique `(recipient_id, dedupe_key)`. This is also the **push outbox** (`push_status`, `attempts`, `next_attempt_at`). |
+| | `safety_scores` | Score history: per trip (with the breakdown JSON) and the driver's rolling score (no breakdown). |
+| Notifications | `notifications` | Unique `(recipient_id, dedupe_key)`. This is also the **push outbox** (`push_status`, `push_attempts`, `next_attempt_at`). |
 | | `notification_preferences` | Per user and family, as `prefs` JSON: minimum severity and disabled types (SOS can never be disabled). |
 | SOS | `emergency_contacts`, `sos_events` | `client_id` unique (offline retries); status OPEN → ACKNOWLEDGED → RESOLVED. |
 | Ops | `audit_logs`, `app_config`, `provider_usage` | Audit of sensitive actions; global safety config and retention overrides; provider calls, errors and latency per day. |
 
-## Retention (defaults for IL, overridable in `app_config` key `retention`)
+## Retention (IL defaults, overridable globally in `app_config` key `retention`: `rawTelemetryDays`, `tripSummaryDays`, `auditLogDays`, `notificationDays`; per-country profiles are not applied yet)
 - Raw telemetry: **30 days**. The maintenance worker deletes old rows. Monthly partitions make it possible to drop a whole month at once.
-- Trip summaries and events: **365 days**.
+- Trip summaries, speeding/safety events, scores and SOS: **365 days**. The whole trip is then deleted.
 - Audit log: **730 days**.
 - Notifications: 180 days.
 - Expired sessions: 30 days after expiry.
@@ -35,7 +35,7 @@ PostgreSQL 16. The schema is in `database/migrations/*.sql`. Migrations are appl
 ## Account deletion
 `DELETE /me` (password required):
 - Deletes all raw telemetry of the user's drivers.
-- Strips locations from trips, events, speeding events and SOS. The anonymous aggregates stay for the family's history.
+- Strips locations from trips, events, speeding events and SOS, and from the coordinates in other members' notifications about this driver. The anonymous aggregates stay for the family's history.
 - Removes the driver profile and family memberships, and revokes devices and sessions.
 - Anonymises the user row.
 

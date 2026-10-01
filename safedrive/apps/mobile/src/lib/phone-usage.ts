@@ -8,7 +8,7 @@
  *  - the screen state indirectly via AppState (active vs background) - not proof of use.
  *
  * Everything else is reported as unavailable / platform restricted, and the parent UI
- * shows these capability flags instead of pretending to detect distraction.
+ * flags are reported to the API (device capabilities) instead of pretending to detect distraction.
  */
 import { Platform } from 'react-native';
 

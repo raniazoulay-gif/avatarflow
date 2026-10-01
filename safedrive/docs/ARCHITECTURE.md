@@ -46,12 +46,12 @@
 2. **Database** `speed_limits` cache (30-day TTL; 24-hour negative TTL).
 3. **Road-geometry reuse**: while the car stays within 15 m of the matched OSM way, there are no new provider calls. On the same road, the limit refreshes every 120 s.
 4. **Provider chain**: `SPEED_LIMIT_PROVIDERS`, default `osm`, optionally `here` and `tomtom`.
-   - Lookups are throttled to every 100 m or 30 s.
+   - Lookups are throttled to every 100 m or 30 s, or happen immediately when leaving the matched road.
    - Calls are counted in `provider_usage`.
 
 ## Realtime
 - `GET /ws`. The first message must authenticate with an access token.
-- The socket then subscribes only to the user's own channel and the channels of the families the user belongs to.
+- The socket then subscribes only to the user's own channel and the channels of the families where the user is a PARENT. Every 30 s the socket re-checks the session (closing it when revoked) and the family list (unsubscribing families the user was removed from).
 - Events: `trip.update` (live view), `trip.started`, `trip.ended`, `notification`, `sos`, `sos.status`.
 - With `REDIS_URL` set, events go over Redis pub/sub so several API instances can be used. Otherwise the bus is in-memory, which supports a single instance only.
 
@@ -85,7 +85,7 @@
 - `location.ts` wires expo-location with a TaskManager task, defined at module load so headless restarts work.
   - Android uses a foreground service with a visible notification.
   - iOS uses `showsBackgroundLocationIndicator`.
-- The adaptive plan from `planTelemetry` changes the sampling interval and distance by movement class, background state and battery. Sampling is never thinned while speeding.
+- The adaptive plan from `planTelemetry` changes the sampling interval and distance by movement class, background state and battery. Low-battery thinning is never applied while speeding (the background factor still is).
 
 ## Trip state machine (core `trip-state.ts`)
 `IDLE → STARTING → ACTIVE ⇄ ATTENTION/WARNING/CRITICAL`

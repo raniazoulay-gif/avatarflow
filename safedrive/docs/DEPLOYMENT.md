@@ -38,7 +38,7 @@ Images are built from the `safedrive/` folder:
 docker build -f apps/api/Dockerfile -t safedrive-api .
 docker build -f apps/web/Dockerfile -t safedrive-web .
 ```
-Note: the Docker builds were not run end-to-end in the development sandbox, because its build containers have no network access. CI builds both images on every push.
+Note: the Docker builds were not run end-to-end in the development sandbox, because its build containers have no network access. CI builds both images on pushes that touch `safedrive/`, after the checks pass.
 
 ## Managed hosting (example)
 Any container platform works: Fly.io, Render, Railway, ECS or Cloud Run. Requirements:

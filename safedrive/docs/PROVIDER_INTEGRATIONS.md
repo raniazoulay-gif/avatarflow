@@ -17,7 +17,7 @@ Licensing: OSM data is ODbL. Show "© OpenStreetMap contributors" (already in th
 **Never used:** Waze or Google Maps data. Their terms forbid scraping or using it to build a competing dataset. SafeDrive does not reverse-engineer private APIs.
 
 Cost and usage control:
-- Lookups at most every 100 m / 30 s per trip; no call while on the same matched road (refresh every 120 s).
+- Lookups at most every 100 m / 30 s per trip, or immediately when leaving the matched road; no call while on the same matched road (refresh every 120 s).
 - Cache by ~33 m cell × heading bucket; 30-day TTL; 24 h negative TTL.
 - At most 20 lookups per uploaded batch; no lookups for impossible jumps.
 - `provider_usage` table plus the admin "Providers" page: calls, errors and average latency per provider per day.
@@ -26,7 +26,7 @@ Cost and usage control:
 | Provider | `PUSH_PROVIDER` | Status |
 |---|---|---|
 | Log (development) | `log` | Implemented |
-| Expo Push Service → FCM / APNs | `expo` | **Requires external configuration**: an EAS project (`extra.eas.projectId` in `app.json`), FCM v1 credentials uploaded to EAS (Android), an APNs key uploaded to EAS (iOS), and optionally `EXPO_ACCESS_TOKEN`. The sending, receipts and invalid-token cleanup are implemented and tested against a mocked Expo API. |
+| Expo Push Service → FCM / APNs | `expo` | **Requires external configuration**: an EAS project (`extra.eas.projectId` in `app.json`), FCM v1 credentials uploaded to EAS (Android), an APNs key uploaded to EAS (iOS), and optionally `EXPO_ACCESS_TOKEN`. Sending and ticket errors (removal of `DeviceNotRegistered` tokens) are implemented and tested against a mocked Expo API. Delivery receipts (`/push/getReceipts`) are not implemented. |
 | None | `none` | Implemented (in-app + realtime only) |
 
 Android channels: `default`, `alerts`, and `critical` (SOS and CRITICAL speeding: max importance, vibration).

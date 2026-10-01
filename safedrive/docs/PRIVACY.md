@@ -15,7 +15,7 @@ SafeDrive processes location data of young people. Privacy is a product feature,
    - Phone-usage detection is limited to interaction with SafeDrive itself while moving.
 4. **Retention** (IL defaults, configurable):
    - raw GPS points: 30 days
-   - trip summaries and events: 365 days
+   - trip summaries, events and SOS: 365 days (then the whole trip is deleted)
    - audit log: 730 days
    - notifications: 180 days
 5. **User rights.**
@@ -40,4 +40,4 @@ SafeDrive processes location data of young people. Privacy is a product feature,
 | Audit log (actor, action, IP) | Server | Security | 730 days |
 
 ## Minors
-Drivers are often 17–18. The country profile holds `minAccountAge` (IL: 16). Whether guardian consent is needed depends on the jurisdiction. See [LEGAL_AND_COMPLIANCE_NOTES.md](LEGAL_AND_COMPLIANCE_NOTES.md).
+Drivers are often 17–18. The country profile holds `minAccountAge` (IL: 16), but it is **not enforced yet**: there is no age check at registration. Whether guardian consent is needed depends on the jurisdiction. See [LEGAL_AND_COMPLIANCE_NOTES.md](LEGAL_AND_COMPLIANCE_NOTES.md).

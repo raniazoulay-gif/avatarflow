@@ -4,7 +4,7 @@
 | Permission | Platform | When | Why | If denied |
 |---|---|---|---|---|
 | Location "While using" | iOS / Android (`ACCESS_FINE_LOCATION`) | First START DRIVING | Speed and position during the trip | No trip can start. State `PERMISSION_REQUIRED`. A parent's monitoring request is answered `PERMISSION_REQUIRED`. |
-| Location "Always" / background | iOS (`NSLocationAlwaysAndWhenInUseUsageDescription`) / Android (`ACCESS_BACKGROUND_LOCATION`) | Right after foreground is granted | Keeps monitoring while a navigation app is open or the screen is off | Foreground-only monitoring. The app shows a warning and the parent sees `backgroundLocation: false`. |
+| Location "Always" / background | iOS (`NSLocationAlwaysAndWhenInUseUsageDescription`) / Android (`ACCESS_BACKGROUND_LOCATION`) | Right after foreground is granted | Keeps monitoring while a navigation app is open or the screen is off | Foreground-only monitoring. The app shows a warning. The device reports `backgroundLocation: false` to the API (`GET /families/:id/drivers`); the dashboard does not show it yet. |
 | Foreground service (location) | Android (`FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_LOCATION`) | During a trip | Android requires a visible notification for background location | — |
 | Notifications | iOS / Android 13+ (`POST_NOTIFICATIONS`) | After sign-in | Parent alerts, monitoring requests | In-app and realtime only |
 

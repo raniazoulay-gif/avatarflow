@@ -9,21 +9,21 @@ Parents of new drivers (17–21) worry about speeding but have no reliable, resp
 - **System admin**: operates the platform through the admin panel (health, users, families, audit, providers, configuration).
 
 ## Core rules
-1. **Speeding is confirmed only after 10 continuous seconds** above the limit, measured from the first sample where the excess is at least the ATTENTION threshold. If the speed drops back to or below the limit before 10 s, the timer resets and no event is recorded.
+1. **Speeding is confirmed only after 10 continuous seconds** above the limit, measured from the first sample where the excess is at least the ATTENTION threshold. If the excess drops below the ATTENTION threshold before 10 s (for example, back to 105 at a 100 limit), the timer resets and no event is recorded.
 2. **Severity** is based on the percentage over the limit, with inclusive thresholds:
    - ATTENTION ≥ 10%
    - WARNING ≥ 30%
    - CRITICAL ≥ 50%
 
    All thresholds are configurable globally (admin) and per country. Example: at a 100 km/h limit, 110 is ATTENTION, 130 is WARNING and 150 is CRITICAL.
-3. **One event per continuous speeding episode.** It is not one per second. Escalation to a higher severity must hold for 3 s, and each escalation sends one notification. The event closes after 3 s at or below the limit and records:
+3. **One event per continuous speeding episode.** It is not one per second. Escalation to a higher severity must hold for 3 s, and each escalation sends one notification. The event closes after 3 s below the ATTENTION threshold and records:
    - start and end time
    - duration
    - maximum speed and the limit
    - maximum excess
    - peak severity
    - road
-   - start and end location
+   - start location and the location of the peak speed
 4. **No false violation**:
    - When the limit is unavailable or low-confidence, no violation is recorded and the state shows SPEED_LIMIT_UNAVAILABLE.
    - When GPS accuracy is worse than 50 m, the sample is ignored (LOCATION_UNAVAILABLE).
@@ -39,7 +39,7 @@ Parents of new drivers (17–21) worry about speeding but have no reliable, resp
   - START DRIVING, live status with large severity colours, and long-press to end the trip.
   - SOS, accept or decline monitoring requests, and a permission checklist.
   - Navigation hand-off to Waze, Google Maps or Apple Maps through public deep links.
-  - Offline mode and a demo trip.
+  - Offline mode. Server-run demo trips show up labelled DEMO; the phone itself never simulates.
 - **Parent web dashboard:**
   - Live map with all active drivers, driver pages, trip details (coloured route, speed chart, replay) and the notification centre.
   - SOS centre (acknowledge and resolve).

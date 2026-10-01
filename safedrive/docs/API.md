@@ -42,7 +42,7 @@ Base URL: `http://localhost:4000` (dev). JSON over HTTPS.
 ## Drivers & monitoring
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/drivers/:id`, `/drivers/:id/trips?before&limit&includeDemo` | Family members |
+| GET | `/drivers/:id`, `/drivers/:id/trips?before&limit&includeDemo` | The driver themself or a PARENT of the family |
 | POST | `/drivers/:id/monitoring-requests` | PARENT asks; the driver is notified and must accept on the phone |
 | GET | `/me/monitoring-requests` | Driver's pending requests |
 | POST | `/monitoring-requests/:id/respond` | `{status: DECLINED/PERMISSION_REQUIRED/UNAVAILABLE/PENDING}` |
@@ -77,9 +77,9 @@ Base URL: `http://localhost:4000` (dev). JSON over HTTPS.
 
 ## System
 - `GET /health` (liveness)
-- `GET /health/ready` (DB + providers)
+- `GET /health/ready` (DB only; provider health is at `/admin/health`)
 - `GET /metrics` (Prometheus, Bearer `METRICS_TOKEN`)
-- `GET /config/client` (map tiles, thresholds, demo flag)
+- `GET /config/client` (map tiles, default thresholds, demo flag; admin/country overrides are not reflected yet)
 
 ## Realtime – `GET /ws`
 1. Send `{"type":"auth","token":"ACCESS_TOKEN"}` within 10 s.
@@ -91,5 +91,5 @@ Base URL: `http://localhost:4000` (dev). JSON over HTTPS.
    - `sos`
    - `sos.status`
 
-   Only the user's own events and those of the user's families are delivered. Access is re-checked every 30 s: logout, suspension or removal from a family ends the stream.
+   Only the user's own events and those of families where the user is a PARENT are delivered. Access is re-checked every 30 s: logout or suspension closes the socket, and removal from a family stops that family's events.
 3. `{"type":"ping"}` → `pong`.

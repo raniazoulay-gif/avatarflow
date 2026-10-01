@@ -11,7 +11,7 @@ Hebrew/RTL is the first-class UI language. Israel is the default market (km/h, A
 | Part | Path | Stack |
 |---|---|---|
 | Safety engine (shared) | `packages/core` | TypeScript, pure, deterministic, 42 unit tests |
-| Backend API + workers | `apps/api` | Node 22, Fastify 5, PostgreSQL 16, optional Redis, WebSocket, 58 integration/E2E/failure tests |
+| Backend API + workers | `apps/api` | Node 22, Fastify 5, PostgreSQL 16, optional Redis, WebSocket, 59 integration/E2E/failure tests |
 | Parent dashboard + admin panel | `apps/web` | React 18, Vite, Leaflet, Hebrew RTL |
 | Driver mobile app | `apps/mobile` | React Native / Expo SDK 52, background location, 18 tests |
 | Database schema | `database/migrations` | SQL migrations (partitioned telemetry) |

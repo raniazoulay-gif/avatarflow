@@ -87,8 +87,8 @@ export function NotificationsPage() {
         </table>
         <p className="small muted" style={{ marginBottom: 0 }}>
           {he
-            ? 'התראות מוצגות כאן ובזמן אמת. התראות Push נשלחות למכשירים רשומים, אך מערכות ההפעלה לא מבטיחות מסירה או צליל (למשל במצב שקט / ריכוז).'
-            : 'Notifications appear here in real time. Push is sent to registered devices, but iOS/Android do not guarantee delivery or sound (e.g. silent / focus modes).'}
+            ? 'התראות מוצגות כאן ובזמן אמת. התראות Push נשלחות למכשירים רשומים רק כששירות Push מוגדר בשרת (EAS/FCM/APNs), וגם אז מערכות ההפעלה לא מבטיחות מסירה או צליל (למשל במצב שקט / ריכוז).'
+            : 'Notifications appear here in real time. Push is sent to registered devices only when push is configured on the server (EAS/FCM/APNs), and even then iOS/Android do not guarantee delivery or sound (e.g. silent / focus modes).'}
         </p>
       </div>
     </>

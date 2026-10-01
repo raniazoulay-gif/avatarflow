@@ -16,7 +16,7 @@ These are stated honestly so that nothing is assumed to work when it doesn't.
 8. **No automatic trip detection.** The driver starts the trip, or accepts a parent's request.
 9. **Single-instance realtime without Redis.** Several API instances need `REDIS_URL`.
 10. **The web session uses localStorage tokens.** This is mitigated by CSP and output escaping; an httpOnly-cookie session is on the roadmap.
-11. **There is no email verification, password reset or data export yet.**
+11. **There is no email verification, password reset, data export or age check yet.** The dashboard doesn't show device capability flags yet (the API returns them). Push delivery receipts are not polled.
 12. **Not covered by automated tests:**
     - Docker images were not built in the development sandbox (it has no network inside build containers). CI builds them.
     - The WebSocket 30-second access re-check.

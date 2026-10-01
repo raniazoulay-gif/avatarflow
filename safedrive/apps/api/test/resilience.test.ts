@@ -209,6 +209,18 @@ describe('background jobs', () => {
     expect((await f.parent.get(`/trips/${tripId}`)).status).toBe(200);
   });
 
+  it('deletes whole trips (events, SOS) after the trip-summary retention', async () => {
+    const tripId = await start();
+    await f.driver.post(`/trips/${tripId}/telemetry`, { points: makePoints(repeat(12, 130)) });
+    await f.driver.post(`/trips/${tripId}/stop`);
+    await t.ctx.db.query(`UPDATE trips SET ended_at = now() - interval '400 days' WHERE id = $1`, [
+      tripId,
+    ]);
+    const res = await applyRetention(t.ctx);
+    expect(res.trips).toBeGreaterThanOrEqual(1);
+    expect((await f.parent.get(`/trips/${tripId}`)).status).toBe(404);
+  });
+
   it('creates monthly telemetry partitions idempotently', async () => {
     await ensurePartitions(t.ctx, new Date('2030-01-15T00:00:00Z'));
     await ensurePartitions(t.ctx, new Date('2030-01-15T00:00:00Z'));

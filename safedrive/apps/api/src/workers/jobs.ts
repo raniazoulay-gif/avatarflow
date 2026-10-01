@@ -4,6 +4,7 @@
  */
 import { countryProfile } from '@safedrive/core';
 import { type AppContext } from '../context.js';
+import { withTx } from '../db/pool.js';
 import { familyChannel } from '../realtime/bus.js';
 import { liveView, type TripRow } from '../services/live.js';
 
@@ -82,25 +83,60 @@ export async function ensurePartitions(ctx: AppContext, now = new Date()): Promi
 }
 
 /**
- * Retention (configurable per country via the country profile, overridable in app_config
- * key 'retention'). Raw telemetry is short-lived; trip summaries and events live longer.
+ * Retention: country-profile defaults (IL), overridable globally in app_config key
+ * 'retention'. Raw telemetry is short-lived; trip summaries/events/SOS live longer.
  */
 export async function applyRetention(ctx: AppContext): Promise<Record<string, number>> {
   const cfgRow = await ctx.db.query<{
-    value: Partial<{ rawTelemetryDays: number; tripSummaryDays: number; auditLogDays: number }>;
+    value: Partial<{
+      rawTelemetryDays: number;
+      tripSummaryDays: number;
+      auditLogDays: number;
+      notificationDays: number;
+    }>;
   }>(`SELECT value FROM app_config WHERE scope = 'global' AND key = 'retention'`);
-  const r = { ...countryProfile('IL').retention, ...(cfgRow.rows[0]?.value ?? {}) };
+  const r = {
+    ...countryProfile('IL').retention,
+    notificationDays: 180,
+    ...(cfgRow.rows[0]?.value ?? {}),
+  };
+  const days = (n: number) => String(Math.max(1, Math.floor(n)));
   const raw = await ctx.db.query(
     `DELETE FROM telemetry_points WHERE recorded_at < now() - ($1 || ' days')::interval
        AND trip_id IN (SELECT id FROM trips WHERE ended_at IS NOT NULL)`,
-    [String(r.rawTelemetryDays)],
+    [days(r.rawTelemetryDays)],
   );
+  // Whole trips (summary, events, scores, SOS) after tripSummaryDays.
+  const trips = await withTx(ctx.db, async (c) => {
+    const old = await c.query<{ id: string }>(
+      `SELECT id FROM trips WHERE ended_at < now() - ($1 || ' days')::interval`,
+      [days(r.tripSummaryDays)],
+    );
+    const ids = old.rows.map((x) => x.id);
+    const cutoff = [days(r.tripSummaryDays)];
+    if (ids.length) {
+      await c.query('DELETE FROM telemetry_points WHERE trip_id = ANY($1)', [ids]);
+      await c.query('DELETE FROM speeding_events WHERE trip_id = ANY($1)', [ids]);
+      await c.query('DELETE FROM safety_events WHERE trip_id = ANY($1)', [ids]);
+      await c.query('DELETE FROM safety_scores WHERE trip_id = ANY($1)', [ids]);
+      await c.query('DELETE FROM sos_events WHERE trip_id = ANY($1)', [ids]);
+      await c.query('UPDATE notifications SET trip_id = NULL WHERE trip_id = ANY($1)', [ids]);
+      await c.query('UPDATE monitoring_requests SET trip_id = NULL WHERE trip_id = ANY($1)', [ids]);
+      await c.query('DELETE FROM trips WHERE id = ANY($1)', [ids]);
+    }
+    await c.query(
+      `DELETE FROM sos_events WHERE trip_id IS NULL AND triggered_at < now() - ($1 || ' days')::interval`,
+      cutoff,
+    );
+    return ids.length;
+  });
   const audits = await ctx.db.query(
     `DELETE FROM audit_logs WHERE at < now() - ($1 || ' days')::interval`,
-    [String(r.auditLogDays)],
+    [days(r.auditLogDays)],
   );
   const notes = await ctx.db.query(
-    `DELETE FROM notifications WHERE created_at < now() - interval '180 days'`,
+    `DELETE FROM notifications WHERE created_at < now() - ($1 || ' days')::interval`,
+    [days(r.notificationDays)],
   );
   const cache1 = await ctx.db.query(`DELETE FROM speed_limits WHERE expires_at < now()`);
   const cache2 = await ctx.db.query(`DELETE FROM provider_cache WHERE expires_at < now()`);
@@ -109,6 +145,7 @@ export async function applyRetention(ctx: AppContext): Promise<Record<string, nu
   );
   return {
     telemetryPoints: raw.rowCount ?? 0,
+    trips,
     auditLogs: audits.rowCount ?? 0,
     notifications: notes.rowCount ?? 0,
     cache: (cache1.rowCount ?? 0) + (cache2.rowCount ?? 0),

@@ -3,7 +3,7 @@
 | Suite | Command | Count | What it proves |
 |---|---|---|---|
 | Safety engine (unit) | `npm run test:unit` | 42 | Speed math and inclusive thresholds. The 10-second rule: 0–9 s no event, 10 s exactly one; reset when back at the limit; 5% over doesn't start the timer. Escalation once per level, no single-second spikes, end confirmation, unavailable/low-confidence limits ignored, bad GPS ignored, gaps break continuity, duplicates and out-of-order ignored, state survives JSON round-trips. Also: Safety Score determinism, caps and distance weighting; hard braking/acceleration; trip state machine; notification dedupe, cooldown and SOS-cannot-be-muted; adaptive telemetry; offline queue (order, restart, backoff, concurrent init); demo generator; Hebrew i18n. |
-| API integration / E2E / failure | `npm run test:api` (PostgreSQL) | 58 | See below |
+| API integration / E2E / failure | `npm run test:api` (PostgreSQL) | 59 | See below |
 | Mobile controller | `cd apps/mobile && npm test` | 18 | START flow; permission denied; ordered upload; offline queue then sync with original timestamps; retries never duplicate; offline stop completed later; restart keeps the queue; offline SOS; adaptive plan. Regressions: double-tap START creates one trip; failed GPS start ends the trip; a stop survives a restart without restarting GPS; 4xx batches are dropped while 5xx batches are kept; 409 on stop completes it; concurrent SOS presses are both delivered; concurrent resume runs once and continues the sequence. Also the phone-usage capability layer. |
 | Static | `npm run lint`, `npm run typecheck`, `npm run format:check` | — | ESLint (typescript-eslint, react-hooks), strict TS, Prettier |
 | Build | `npm run build`; `npx expo export --platform android/ios` | — | API, web and Metro bundles for both platforms |
@@ -23,13 +23,13 @@
   - Auth: bad tokens, password rules, refresh rotation with chain revocation, logout, lockout, consent and single-use invites, suspension ends sessions.
   - Telemetry: malformed or simulated data refused.
   - Abuse: the client can't set `isDemo`, `seq` can't be rewritten, late points after the end are refused, the provider lookup cap and jump guard work.
-- **resilience.test.ts (20):**
+- **resilience.test.ts (21):**
   - Idempotent re-send; concurrent overlapping batches serialised; delayed sync keeps device time; late points after the end don't alert.
   - Limit unavailable leads to no violation; provider failure leads to "unavailable" and shows in health; inaccurate GPS leads to no violation; the cache prevents repeated calls.
   - Engine state survives a restart or another instance.
-  - Offline driver detection, auto-end, retention, partitions, invalid push token removal.
+  - Offline driver detection, auto-end, raw-telemetry and whole-trip retention, partitions, invalid push token removal.
   - Monitoring request lifecycle; mute ATTENTION but never SOS; phone-usage events and duplicates; account deletion.
-- **providers.test.ts (10):** OSM maxspeed parsing (numeric, mph, IL implicit), heading-aware way matching, "no data" handling, geometry reuse, HTTP errors; HERE and TomTom parsing; cache keys; Expo push receipts.
+- **providers.test.ts (10):** OSM maxspeed parsing (numeric, mph, IL implicit), heading-aware way matching, "no data" handling, geometry reuse, HTTP errors; HERE and TomTom parsing; cache keys; Expo push ticket errors.
 - **demo.test.ts (3):** the full scenario through the real pipeline, labelled demo; the short burst produces no event; the degraded scenario survives network/GPS loss; demo runs only in demo families.
 
 ## Running locally
@@ -52,6 +52,6 @@ npm run test:unit && npm run test:api && (cd apps/mobile && npm test)
 1. **Start** a trip with "Always" location, open Waze, and drive 10 minutes. Expect a continuous route, alerts at the parent, and the persistent notification visible.
 2. **Airplane mode** for 5 minutes mid-trip. Expect the points to sync afterwards, with no gaps in timestamps and no duplicates.
 3. **Swipe the app away** mid-trip. Expect the trip to continue (Android foreground service; iOS relaunch) or the parent to get an "offline" alert.
-4. **Deny background location.** Expect the warning in the app, and the parent sees `backgroundLocation: false`.
+4. **Deny background location.** Expect the warning in the app. The device reports `backgroundLocation: false` through `GET /families/:id/drivers` (not yet shown in the dashboard).
 5. **SOS without network.** Expect the alert to be delivered when back online; the tap-to-call numbers open the dialer.
 6. **Reboot** during a trip. On reopening the app it resumes or completes the trip, with no stuck "ENDING".

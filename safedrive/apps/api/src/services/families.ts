@@ -238,6 +238,12 @@ export class FamilyService {
         [userId],
       );
       await c.query('DELETE FROM notifications WHERE recipient_id = $1', [userId]);
+      // Other members' notifications about this driver keep the text but lose coordinates.
+      await c.query(
+        `UPDATE notifications SET data = data - 'lat' - 'lon' - 'location'
+         WHERE driver_id IN (SELECT id FROM drivers WHERE user_id = $1)`,
+        [userId],
+      );
       await c.query(
         `UPDATE users SET deleted_at = now(), email = 'deleted-' || id || '@invalid', display_name = 'deleted',
            password_hash = 'deleted', status = 'suspended' WHERE id = $1`,

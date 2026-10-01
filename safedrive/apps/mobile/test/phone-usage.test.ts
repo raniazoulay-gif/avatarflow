@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { PhoneUsageDetector, phoneUsageCapabilities } from '../src/lib/phone-usage';
 
 vi.mock('react-native', () => ({ Platform: { OS: 'android' } }));
-const { PhoneUsageDetector, phoneUsageCapabilities } = await import('../src/lib/phone-usage');
 
 describe('phone usage capability layer', () => {
   it('never claims detection of other apps', () => {
@@ -15,7 +15,10 @@ describe('phone usage capability layer', () => {
   it('reports interaction only while moving, at most once per cooldown, never in demo', async () => {
     let now = 0;
     const reports: unknown[] = [];
-    const d = new PhoneUsageDetector(async (x) => void reports.push(x), () => now);
+    const d = new PhoneUsageDetector(
+      async (x) => void reports.push(x),
+      () => now,
+    );
     expect(await d.onInteraction(5, false)).toBe(false);
     expect(await d.onInteraction(null, false)).toBe(false);
     expect(await d.onInteraction(80, true)).toBe(false);

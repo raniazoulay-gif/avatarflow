@@ -1,0 +1,87 @@
+name: SafeDrive CI
+
+on:
+  push:
+    paths: ['safedrive/**', '.github/workflows/safedrive.yml']
+  pull_request:
+    paths: ['safedrive/**', '.github/workflows/safedrive.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: safedrive-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: safedrive
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: safedrive
+          POSTGRES_PASSWORD: safedrive
+          POSTGRES_DB: safedrive_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U safedrive" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://safedrive:safedrive@localhost:5432/safedrive_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: safedrive/package-lock.json
+      - run: npm ci
+      - name: Lint and format
+        run: npm run lint && npm run format:check
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests (safety engine)
+        run: npm run test:unit
+      - name: Integration / E2E / failure tests (API + PostgreSQL)
+        run: npm run test:api
+      - name: Build
+        run: npm run build
+      - name: Dependency audit (production deps, high+)
+        run: npm audit --omit=dev --audit-level=high
+
+  mobile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: safedrive/apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: safedrive/apps/mobile/package-lock.json
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Trip controller tests (offline queue, resume, SOS)
+        run: npm test
+      - name: Bundle (Metro, Android + iOS)
+        run: npx expo export --platform android --output-dir /tmp/export-android && npx expo export --platform ios --output-dir /tmp/export-ios
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: checks
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image
+        run: docker build -f apps/api/Dockerfile -t safedrive-api .
+      - name: Build web image
+        run: docker build -f apps/web/Dockerfile -t safedrive-web .

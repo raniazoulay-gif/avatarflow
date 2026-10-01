@@ -16,7 +16,13 @@ import { AppState, Platform } from 'react-native';
 import { OutboundQueue, type TelemetryPlan } from '@safedrive/core';
 import { tripApi } from './api';
 import { AsyncQueueStorage, kv } from './storage';
-import { TripController, type Fix, type LocationSource, type PermissionLevel, type UploadPoint } from './trip-controller';
+import {
+  TripController,
+  type Fix,
+  type LocationSource,
+  type PermissionLevel,
+  type UploadPoint,
+} from './trip-controller';
 
 export const LOCATION_TASK = 'safedrive-trip-location';
 
@@ -49,7 +55,8 @@ const nativeLocation: LocationSource = {
     if (await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK)) await startUpdates(plan);
   },
   async stop() {
-    if (await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK)) await Location.stopLocationUpdatesAsync(LOCATION_TASK);
+    if (await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK))
+      await Location.stopLocationUpdatesAsync(LOCATION_TASK);
   },
 };
 
@@ -64,7 +71,8 @@ async function startUpdates(plan: TelemetryPlan): Promise<void> {
     showsBackgroundLocationIndicator: true,
     foregroundService: {
       notificationTitle: 'SafeDrive - ניטור נסיעה פעיל',
-      notificationBody: 'המיקום והמהירות משותפים עם המשפחה עד סיום הנסיעה. Trip monitoring is active.',
+      notificationBody:
+        'המיקום והמהירות משותפים עם המשפחה עד סיום הנסיעה. Trip monitoring is active.',
       killServiceOnDestroy: false,
     },
   });
@@ -73,7 +81,9 @@ async function startUpdates(plan: TelemetryPlan): Promise<void> {
 export const controller = new TripController({
   api: tripApi,
   location: nativeLocation,
-  queue: new OutboundQueue<UploadPoint>(new AsyncQueueStorage<UploadPoint>(), { idFactory: () => Crypto.randomUUID() }),
+  queue: new OutboundQueue<UploadPoint>(new AsyncQueueStorage<UploadPoint>(), {
+    idFactory: () => Crypto.randomUUID(),
+  }),
   store: kv,
   isOnline: () => online,
   battery: () => battery,
@@ -96,17 +106,20 @@ function toFix(l: Location.LocationObject): Fix {
   };
 }
 
-TaskManager.defineTask<{ locations: Location.LocationObject[] }>(LOCATION_TASK, async ({ data, error }) => {
-  if (error) {
-    await controller.report('GPS_UNAVAILABLE', { message: error.message.slice(0, 200) });
-    return;
-  }
-  if (!controller.snapshot.tripId) {
-    // Headless start after the app was killed: restore the live trip first.
-    await controller.resume().catch(() => undefined);
-  }
-  for (const l of data?.locations ?? []) await controller.onFix(toFix(l));
-});
+TaskManager.defineTask<{ locations: Location.LocationObject[] }>(
+  LOCATION_TASK,
+  async ({ data, error }) => {
+    if (error) {
+      await controller.report('GPS_UNAVAILABLE', { message: error.message.slice(0, 200) });
+      return;
+    }
+    if (!controller.snapshot.tripId) {
+      // Headless start after the app was killed: restore the live trip first.
+      await controller.resume().catch(() => undefined);
+    }
+    for (const l of data?.locations ?? []) await controller.onFix(toFix(l));
+  },
+);
 
 let wired = false;
 /** Subscribes to connectivity / battery / app-state once (UI start-up). */
@@ -120,11 +133,27 @@ export function wireEnvironment(): void {
   });
   void Battery.getPowerStateAsync()
     .then((p) => {
-      battery = { level: p.batteryLevel >= 0 ? p.batteryLevel : null, charging: p.batteryState === Battery.BatteryState.CHARGING || p.batteryState === Battery.BatteryState.FULL };
+      battery = {
+        level: p.batteryLevel >= 0 ? p.batteryLevel : null,
+        charging:
+          p.batteryState === Battery.BatteryState.CHARGING ||
+          p.batteryState === Battery.BatteryState.FULL,
+      };
     })
     .catch(() => undefined);
-  Battery.addBatteryLevelListener(({ batteryLevel }) => (battery = { ...battery, level: batteryLevel >= 0 ? batteryLevel : null }));
-  Battery.addBatteryStateListener(({ batteryState }) => (battery = { ...battery, charging: batteryState === Battery.BatteryState.CHARGING || batteryState === Battery.BatteryState.FULL }));
+  Battery.addBatteryLevelListener(
+    ({ batteryLevel }) =>
+      (battery = { ...battery, level: batteryLevel >= 0 ? batteryLevel : null }),
+  );
+  Battery.addBatteryStateListener(
+    ({ batteryState }) =>
+      (battery = {
+        ...battery,
+        charging:
+          batteryState === Battery.BatteryState.CHARGING ||
+          batteryState === Battery.BatteryState.FULL,
+      }),
+  );
   AppState.addEventListener('change', (s) => {
     appState = s;
     if (s === 'active') void controller.sync();

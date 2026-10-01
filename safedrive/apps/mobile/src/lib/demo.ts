@@ -8,21 +8,37 @@ import { controller } from './location';
 
 let timer: ReturnType<typeof setInterval> | null = null;
 
-export async function startDemo(driverId: string, scenarioId = 'full', speedup = 1): Promise<boolean> {
+export async function startDemo(
+  driverId: string,
+  scenarioId = 'full',
+  speedup = 1,
+): Promise<boolean> {
   const s = demoScenario(scenarioId);
   if (!s || timer) return false;
   const ok = await controller.start(driverId, null, { demo: true });
   if (!ok) return false;
   const pts = generateDemoPoints(s, Date.now());
   let i = 0;
-  timer = setInterval(() => {
-    const p = pts[i++];
-    if (!p) {
-      stopDemo(true);
-      return;
-    }
-    void controller.onFix({ t: p.t, lat: p.lat, lon: p.lon, altitudeM: p.altitudeM, speedMs: p.speedMs, headingDeg: p.headingDeg, accuracyM: p.accuracyM, simulatedLimitKmh: p.limitKmh });
-  }, Math.max(50, Math.round(1000 / speedup)));
+  timer = setInterval(
+    () => {
+      const p = pts[i++];
+      if (!p) {
+        stopDemo(true);
+        return;
+      }
+      void controller.onFix({
+        t: p.t,
+        lat: p.lat,
+        lon: p.lon,
+        altitudeM: p.altitudeM,
+        speedMs: p.speedMs,
+        headingDeg: p.headingDeg,
+        accuracyM: p.accuracyM,
+        simulatedLimitKmh: p.limitKmh,
+      });
+    },
+    Math.max(50, Math.round(1000 / speedup)),
+  );
   return true;
 }
 

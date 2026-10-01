@@ -47,7 +47,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(
     async (path: '/auth/login' | '/auth/register', body: Record<string, string>) => {
-      const r = await call<{ accessToken: string; refreshToken: string }>(path, 'POST', body, false);
+      const r = await call<{ accessToken: string; refreshToken: string }>(
+        path,
+        'POST',
+        body,
+        false,
+      );
       await saveSession(r);
       await reload();
     },
@@ -61,7 +66,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setFamilies([]);
   }, []);
 
-  return <SessionCtx.Provider value={{ ready, user, families, reload, signIn, signOut }}>{children}</SessionCtx.Provider>;
+  return (
+    <SessionCtx.Provider value={{ ready, user, families, reload, signIn, signOut }}>
+      {children}
+    </SessionCtx.Provider>
+  );
 }
 
 export function useSession(): Ctx {

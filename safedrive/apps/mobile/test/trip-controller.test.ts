@@ -1,24 +1,52 @@
 import { describe, expect, it } from 'vitest';
 import { MemoryQueueStorage, OutboundQueue, type LiveTripView } from '@safedrive/core';
-import { TripController, type Fix, type KeyValueStore, type LocationSource, type PermissionLevel, type TripApi, type UploadPoint } from '../src/lib/trip-controller';
+import {
+  TripController,
+  type Fix,
+  type KeyValueStore,
+  type LocationSource,
+  type PermissionLevel,
+  type TripApi,
+  type UploadPoint,
+} from '../src/lib/trip-controller';
 
 class FakeStore implements KeyValueStore {
   data = new Map<string, string>();
-  async get(k: string) { return this.data.get(k) ?? null; }
-  async set(k: string, v: string) { this.data.set(k, v); }
-  async remove(k: string) { this.data.delete(k); }
+  async get(k: string) {
+    return this.data.get(k) ?? null;
+  }
+  async set(k: string, v: string) {
+    this.data.set(k, v);
+  }
+  async remove(k: string) {
+    this.data.delete(k);
+  }
 }
 
 class FakeLocation implements LocationSource {
   started = 0;
   stopped = 0;
   plans: string[] = [];
-  constructor(public perm: PermissionLevel = 'background', public grantOnRequest: PermissionLevel = 'background') {}
-  async permission() { return this.perm; }
-  async requestPermission() { this.perm = this.grantOnRequest; return this.perm; }
-  async start() { this.started += 1; }
-  async updatePlan(p: { motion: string }) { this.plans.push(p.motion); }
-  async stop() { this.stopped += 1; }
+  constructor(
+    public perm: PermissionLevel = 'background',
+    public grantOnRequest: PermissionLevel = 'background',
+  ) {}
+  async permission() {
+    return this.perm;
+  }
+  async requestPermission() {
+    this.perm = this.grantOnRequest;
+    return this.perm;
+  }
+  async start() {
+    this.started += 1;
+  }
+  async updatePlan(p: { motion: string }) {
+    this.plans.push(p.motion);
+  }
+  async stop() {
+    this.stopped += 1;
+  }
 }
 
 /** In-memory server: idempotent by (trip, seq), like the real API. */
@@ -31,25 +59,68 @@ class FakeServer implements TripApi {
   monitoringResponses: string[] = [];
   tripCount = 0;
   private live(tripId: string, severity: LiveTripView['severity'] = 'SAFE'): LiveTripView {
-    return { tripId, driverId: 'd1', driverName: 'Romi', isDemo: false, state: severity === 'SAFE' ? 'ACTIVE' : severity, startedAt: '', lastUpdateAt: null, location: null, speedKmh: null, limitKmh: 100, limitSource: 'test', excessKmh: 0, excessPct: 0, severity, speedingSeconds: null, confirming: false, score: 100, connection: 'online' };
+    return {
+      tripId,
+      driverId: 'd1',
+      driverName: 'Romi',
+      isDemo: false,
+      state: severity === 'SAFE' ? 'ACTIVE' : severity,
+      startedAt: '',
+      lastUpdateAt: null,
+      location: null,
+      speedKmh: null,
+      limitKmh: 100,
+      limitSource: 'test',
+      excessKmh: 0,
+      excessPct: 0,
+      severity,
+      speedingSeconds: null,
+      confirming: false,
+      score: 100,
+      connection: 'online',
+    };
   }
-  private check() { if (!this.online) throw new Error('network down'); }
-  async startTrip(input: { isDemo?: boolean }) { this.check(); this.tripCount += 1; return { ...this.live(`trip${this.tripCount}`), isDemo: input.isDemo === true }; }
-  async stopTrip(id: string) { this.check(); this.stopped.push(id); return {}; }
+  private check() {
+    if (!this.online) throw new Error('network down');
+  }
+  async startTrip(input: { isDemo?: boolean }) {
+    this.check();
+    this.tripCount += 1;
+    return { ...this.live(`trip${this.tripCount}`), isDemo: input.isDemo === true };
+  }
+  async stopTrip(id: string) {
+    this.check();
+    this.stopped.push(id);
+    return {};
+  }
   async upload(tripId: string, pts: UploadPoint[]) {
     this.check();
     const m = this.points.get(tripId) ?? new Map();
     const accepted: string[] = [];
     const duplicates: string[] = [];
-    for (const p of pts) (m.has(p.seq) ? duplicates : accepted).push(p.id), m.set(p.seq, p);
+    for (const p of pts) ((m.has(p.seq) ? duplicates : accepted).push(p.id), m.set(p.seq, p));
     this.points.set(tripId, m);
     const fast = pts.some((p) => (p.speedMs ?? 0) * 3.6 > 130);
     return { accepted, duplicates, live: this.live(tripId, fast ? 'WARNING' : 'SAFE') };
   }
-  async reportEvent(_t: string, e: { type: string }) { this.check(); this.events.push(e.type); return {}; }
-  async sos(i: { clientId: string }) { this.check(); this.sosCalls.push(i.clientId); return {}; }
-  async activeTrip() { this.check(); return null; }
-  async respondMonitoring(_id: string, status: string) { this.monitoringResponses.push(status); return {}; }
+  async reportEvent(_t: string, e: { type: string }) {
+    this.check();
+    this.events.push(e.type);
+    return {};
+  }
+  async sos(i: { clientId: string }) {
+    this.check();
+    this.sosCalls.push(i.clientId);
+    return {};
+  }
+  async activeTrip() {
+    this.check();
+    return null;
+  }
+  async respondMonitoring(_id: string, status: string) {
+    this.monitoringResponses.push(status);
+    return {};
+  }
 }
 
 function setup(opts: { perm?: PermissionLevel; grant?: PermissionLevel } = {}) {
@@ -63,7 +134,11 @@ function setup(opts: { perm?: PermissionLevel; grant?: PermissionLevel } = {}) {
     new TripController({
       api: server,
       location: loc,
-      queue: new OutboundQueue(storage, { now: () => now, baseBackoffMs: 0, idFactory: () => `p${++n}` }),
+      queue: new OutboundQueue(storage, {
+        now: () => now,
+        baseBackoffMs: 0,
+        idFactory: () => `p${++n}`,
+      }),
       store,
       isOnline: () => server.online,
       battery: () => ({ level: 0.8, charging: false }),
@@ -73,7 +148,15 @@ function setup(opts: { perm?: PermissionLevel; grant?: PermissionLevel } = {}) {
     });
   const fix = (kmh: number): Fix => {
     now += 1000;
-    return { t: now, lat: 32, lon: 34.8, altitudeM: null, speedMs: kmh / 3.6, headingDeg: 0, accuracyM: 5 };
+    return {
+      t: now,
+      lat: 32,
+      lon: 34.8,
+      altitudeM: null,
+      speedMs: kmh / 3.6,
+      headingDeg: 0,
+      accuracyM: 5,
+    };
   };
   return { server, store, storage, loc, make, fix, tick: (ms: number) => (now += ms) };
 }

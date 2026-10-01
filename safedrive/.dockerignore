@@ -1,0 +1,7 @@
+**/node_modules
+**/dist
+apps/mobile
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log

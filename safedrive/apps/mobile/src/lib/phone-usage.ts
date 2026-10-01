@@ -12,7 +12,8 @@
  */
 import { Platform } from 'react-native';
 
-export type CapabilityStatus = 'IMPLEMENTED' | 'PARTIAL' | 'PLATFORM_RESTRICTED' | 'UNAVAILABLE' | 'REQUIRES_EXTERNAL_CONFIG';
+export type CapabilityStatus =
+  'IMPLEMENTED' | 'PARTIAL' | 'PLATFORM_RESTRICTED' | 'UNAVAILABLE' | 'REQUIRES_EXTERNAL_CONFIG';
 
 export interface PhoneUsageCapabilities {
   safedriveForegroundWhileMoving: CapabilityStatus;
@@ -43,7 +44,9 @@ export const PHONE_USAGE_COOLDOWN_MS = 60_000;
 export class PhoneUsageDetector {
   private lastReportAt = 0;
   constructor(
-    private readonly report: (data: Record<string, string | number | boolean | null>) => Promise<void>,
+    private readonly report: (
+      data: Record<string, string | number | boolean | null>,
+    ) => Promise<void>,
     private readonly now: () => number = Date.now,
   ) {}
 

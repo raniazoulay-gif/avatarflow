@@ -68,11 +68,19 @@ export class HttpError extends Error {
   }
 }
 
-export async function call<T>(path: string, method = 'GET', body?: unknown, retry = true): Promise<T> {
+export async function call<T>(
+  path: string,
+  method = 'GET',
+  body?: unknown,
+  retry = true,
+): Promise<T> {
   if (!access && retry) await refresh();
   const r = await fetch(`${API_URL}${path}`, {
     method,
-    headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(access ? { Authorization: `Bearer ${access}` } : {}) },
+    headers: {
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(access ? { Authorization: `Bearer ${access}` } : {}),
+    },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (r.status === 401 && retry && (await refresh())) return call<T>(path, method, body, false);

@@ -1,0 +1,34 @@
+# Local full stack: docker compose up --build   (web on http://localhost:8080)
+# Secrets come from .env (copy .env.example). Never commit .env.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: safedrive
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-safedrive}
+      POSTGRES_DB: safedrive
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U safedrive']
+      interval: 5s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+  api:
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgres://safedrive:${POSTGRES_PASSWORD:-safedrive}@postgres:5432/safedrive
+      REDIS_URL: redis://redis:6379
+      CORS_ORIGINS: http://localhost:8080
+      TRUST_PROXY: 'true'
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+    ports: ['4000:4000']
+  web:
+    build: { context: ., dockerfile: apps/web/Dockerfile }
+    depends_on: [api]
+    ports: ['8080:8080']
+volumes:
+  pgdata:

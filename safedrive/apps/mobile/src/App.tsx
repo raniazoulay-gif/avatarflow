@@ -48,14 +48,21 @@ function Root() {
         <Text style={styles.h2}>SafeDrive · {user.displayName}</Text>
         <View style={styles.row}>
           {driverFamily && parentFamily && (
-            <Tab label={view === 'parent' ? s('startDriving') : s('liveTrips')} onPress={() => setView(view === 'parent' ? 'main' : 'parent')} />
+            <Tab
+              label={view === 'parent' ? s('startDriving') : s('liveTrips')}
+              onPress={() => setView(view === 'parent' ? 'main' : 'parent')}
+            />
           )}
           <Tab label={s('logout')} onPress={signOut} />
         </View>
       </View>
       {view === 'sos' && <SosScreen family={family} onBack={() => setView('main')} />}
-      {view !== 'sos' && (view === 'parent' || !driverFamily?.driverId) && parentFamily && <ParentScreen family={parentFamily} />}
-      {view === 'main' && driverFamily?.driverId && <DriverScreen driverId={driverFamily.driverId} onSos={() => setView('sos')} />}
+      {view !== 'sos' && (view === 'parent' || !driverFamily?.driverId) && parentFamily && (
+        <ParentScreen family={parentFamily} />
+      )}
+      {view === 'main' && driverFamily?.driverId && (
+        <DriverScreen driverId={driverFamily.driverId} onSos={() => setView('sos')} />
+      )}
     </View>
   );
 }

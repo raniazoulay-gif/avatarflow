@@ -39,13 +39,41 @@ export interface UploadPoint extends TelemetryPointInput {
 }
 
 export interface TripApi {
-  startTrip(input: { driverId: string; deviceId: string | null; monitoringRequestId?: string | null; isDemo?: boolean }): Promise<LiveTripView>;
+  startTrip(input: {
+    driverId: string;
+    deviceId: string | null;
+    monitoringRequestId?: string | null;
+    isDemo?: boolean;
+  }): Promise<LiveTripView>;
   stopTrip(tripId: string): Promise<unknown>;
-  upload(tripId: string, points: UploadPoint[]): Promise<{ accepted: string[]; duplicates: string[]; live: LiveTripView | null }>;
-  reportEvent(tripId: string, e: { clientId: string; type: string; at: number; data: Record<string, string | number | boolean | null> }): Promise<unknown>;
-  sos(input: { clientId: string; driverId: string; tripId: string | null; lat: number | null; lon: number | null; accuracyM: number | null; speedMs: number | null; triggeredAt: number }): Promise<unknown>;
+  upload(
+    tripId: string,
+    points: UploadPoint[],
+  ): Promise<{ accepted: string[]; duplicates: string[]; live: LiveTripView | null }>;
+  reportEvent(
+    tripId: string,
+    e: {
+      clientId: string;
+      type: string;
+      at: number;
+      data: Record<string, string | number | boolean | null>;
+    },
+  ): Promise<unknown>;
+  sos(input: {
+    clientId: string;
+    driverId: string;
+    tripId: string | null;
+    lat: number | null;
+    lon: number | null;
+    accuracyM: number | null;
+    speedMs: number | null;
+    triggeredAt: number;
+  }): Promise<unknown>;
   activeTrip(): Promise<(LiveTripView & { lastSeq: number }) | null>;
-  respondMonitoring(requestId: string, status: 'DECLINED' | 'PERMISSION_REQUIRED' | 'UNAVAILABLE'): Promise<unknown>;
+  respondMonitoring(
+    requestId: string,
+    status: 'DECLINED' | 'PERMISSION_REQUIRED' | 'UNAVAILABLE',
+  ): Promise<unknown>;
 }
 
 export interface LocationSource {
@@ -137,7 +165,11 @@ export class TripController {
   async resume(): Promise<void> {
     await this.d.queue.init();
     const permission = await this.d.location.permission();
-    this.emit({ permission, pendingStop: (await this.d.store.get(K_PENDING_STOP)) !== null, pendingSos: this.pendingSosList(await this.d.store.get(K_PENDING_SOS)).length });
+    this.emit({
+      permission,
+      pendingStop: (await this.d.store.get(K_PENDING_STOP)) !== null,
+      pendingSos: this.pendingSosList(await this.d.store.get(K_PENDING_SOS)).length,
+    });
     let active: (LiveTripView & { lastSeq: number }) | null = null;
     try {
       active = await this.d.api.activeTrip();
@@ -147,7 +179,13 @@ export class TripController {
     }
     if (!active) return;
     await this.d.queue.setNextSeq(active.tripId, active.lastSeq);
-    this.emit({ state: active.state === 'REMOTE_MONITORING_ACTIVE' ? 'REMOTE_MONITORING_ACTIVE' : 'ACTIVE', tripId: active.tripId, driverId: active.driverId, isDemo: active.isDemo, live: active });
+    this.emit({
+      state: active.state === 'REMOTE_MONITORING_ACTIVE' ? 'REMOTE_MONITORING_ACTIVE' : 'ACTIVE',
+      tripId: active.tripId,
+      driverId: active.driverId,
+      isDemo: active.isDemo,
+      live: active,
+    });
     if (!active.isDemo && (permission === 'background' || permission === 'foreground')) {
       await this.d.location.start(this.currentPlan());
     }
@@ -155,16 +193,24 @@ export class TripController {
   }
 
   /** START DRIVING (or accepting a parent's monitoring request). */
-  async start(driverId: string, deviceId: string | null, opts: { monitoringRequestId?: string | null; demo?: boolean } = {}): Promise<boolean> {
+  async start(
+    driverId: string,
+    deviceId: string | null,
+    opts: { monitoringRequestId?: string | null; demo?: boolean } = {},
+  ): Promise<boolean> {
     if (this.snap.tripId) return true;
     this.emit({ error: null, driverId });
     if (!opts.demo) {
       let permission = await this.d.location.permission();
-      if (permission === 'undetermined' || permission === 'denied') permission = await this.d.location.requestPermission();
+      if (permission === 'undetermined' || permission === 'denied')
+        permission = await this.d.location.requestPermission();
       this.emit({ permission });
       if (permission === 'denied' || permission === 'undetermined') {
         this.go('PERMISSION_MISSING');
-        if (opts.monitoringRequestId) await this.d.api.respondMonitoring(opts.monitoringRequestId, 'PERMISSION_REQUIRED').catch(() => undefined);
+        if (opts.monitoringRequestId)
+          await this.d.api
+            .respondMonitoring(opts.monitoringRequestId, 'PERMISSION_REQUIRED')
+            .catch(() => undefined);
         return false;
       }
     }
@@ -172,7 +218,12 @@ export class TripController {
     this.go(opts.monitoringRequestId ? 'REQUEST_REMOTE' : 'START');
     if (opts.monitoringRequestId) this.go('START');
     try {
-      const live = await this.d.api.startTrip({ driverId, deviceId, monitoringRequestId: opts.monitoringRequestId ?? null, isDemo: opts.demo === true });
+      const live = await this.d.api.startTrip({
+        driverId,
+        deviceId,
+        monitoringRequestId: opts.monitoringRequestId ?? null,
+        isDemo: opts.demo === true,
+      });
       await this.d.store.set(K_ACTIVE, JSON.stringify({ ...live, lastSeq: 0 }));
       this.emit({ tripId: live.tripId, live, isDemo: live.isDemo });
       this.go(opts.monitoringRequestId ? 'STARTED_REMOTE' : 'STARTED');
@@ -193,7 +244,8 @@ export class TripController {
       background: this.d.isBackground(),
       batteryLevel: b.level,
       charging: b.charging,
-      speeding: (this.snap.live?.severity ?? 'SAFE') !== 'SAFE' || this.snap.live?.confirming === true,
+      speeding:
+        (this.snap.live?.severity ?? 'SAFE') !== 'SAFE' || this.snap.live?.confirming === true,
     });
     return this.plan;
   }
@@ -220,8 +272,11 @@ export class TripController {
     this.emit({ lastFix: fix });
     const prevMotion = this.plan?.motion;
     const plan = this.currentPlan();
-    if (plan.motion !== prevMotion && !this.snap.isDemo) await this.d.location.updatePlan(plan).catch(() => undefined);
-    const due = this.d.queue.size >= plan.uploadMaxPoints || this.d.now() - this.lastUploadAt >= plan.uploadMaxDelayMs;
+    if (plan.motion !== prevMotion && !this.snap.isDemo)
+      await this.d.location.updatePlan(plan).catch(() => undefined);
+    const due =
+      this.d.queue.size >= plan.uploadMaxPoints ||
+      this.d.now() - this.lastUploadAt >= plan.uploadMaxDelayMs;
     if (due) await this.sync();
   }
 
@@ -236,7 +291,11 @@ export class TripController {
     let lastLive: LiveTripView | null = null;
     await this.d.queue.flush(async (batch) => {
       const byTrip = new Map<string, UploadPoint[]>();
-      for (const b of batch) byTrip.set(b.stream, [...(byTrip.get(b.stream) ?? []), { ...b.payload, id: b.id, seq: b.seq }]);
+      for (const b of batch)
+        byTrip.set(b.stream, [
+          ...(byTrip.get(b.stream) ?? []),
+          { ...b.payload, id: b.id, seq: b.seq },
+        ]);
       const acknowledged: string[] = [];
       for (const [tripId, points] of byTrip) {
         const r = await this.d.api.upload(tripId, points);
@@ -247,17 +306,27 @@ export class TripController {
     }, force);
     if (lastLive) this.applyLive(lastLive);
     this.emit({});
-    if (this.d.queue.size === 0 && (await this.d.store.get(K_PENDING_STOP))) await this.finishStop();
+    if (this.d.queue.size === 0 && (await this.d.store.get(K_PENDING_STOP)))
+      await this.finishStop();
   }
 
   private applyLive(live: LiveTripView): void {
     const sev = live.severity;
     if (this.snap.state !== 'SOS' && this.snap.state !== 'ENDING') {
       const ev: TripStateEvent =
-        live.state === 'SPEED_LIMIT_UNAVAILABLE' ? 'LIMIT_UNAVAILABLE' : live.state === 'LOCATION_UNAVAILABLE' ? 'LOCATION_LOST' : (`SEVERITY_${sev}` as TripStateEvent);
+        live.state === 'SPEED_LIMIT_UNAVAILABLE'
+          ? 'LIMIT_UNAVAILABLE'
+          : live.state === 'LOCATION_UNAVAILABLE'
+            ? 'LOCATION_LOST'
+            : (`SEVERITY_${sev}` as TripStateEvent);
       if (canTransition(this.snap.state, ev)) {
         const to = transition(this.snap.state, ev);
-        this.emit({ state: to === 'ACTIVE' && live.state === 'REMOTE_MONITORING_ACTIVE' ? 'REMOTE_MONITORING_ACTIVE' : to });
+        this.emit({
+          state:
+            to === 'ACTIVE' && live.state === 'REMOTE_MONITORING_ACTIVE'
+              ? 'REMOTE_MONITORING_ACTIVE'
+              : to,
+        });
       }
     }
     this.emit({ live });
@@ -289,9 +358,14 @@ export class TripController {
   }
 
   /** Device-detected event (phone usage, GPS loss...). Best effort, de-duplicated by clientId. */
-  async report(type: 'PHONE_USAGE' | 'GPS_UNAVAILABLE' | 'PERMISSION_PROBLEM' | 'CONNECTIVITY_LOSS', data: Record<string, string | number | boolean | null> = {}): Promise<void> {
+  async report(
+    type: 'PHONE_USAGE' | 'GPS_UNAVAILABLE' | 'PERMISSION_PROBLEM' | 'CONNECTIVITY_LOSS',
+    data: Record<string, string | number | boolean | null> = {},
+  ): Promise<void> {
     if (!this.snap.tripId || !this.d.isOnline()) return;
-    await this.d.api.reportEvent(this.snap.tripId, { clientId: this.d.uuid(), type, at: this.d.now(), data }).catch(() => undefined);
+    await this.d.api
+      .reportEvent(this.snap.tripId, { clientId: this.d.uuid(), type, at: this.d.now(), data })
+      .catch(() => undefined);
   }
 
   private pendingSosList(raw: string | null): Array<Record<string, unknown>> {

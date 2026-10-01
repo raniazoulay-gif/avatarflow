@@ -5,7 +5,11 @@ import { fileURLToPath } from 'node:url';
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { '@safedrive/core': fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url)) },
+    alias: {
+      '@safedrive/core': fileURLToPath(
+        new URL('../../packages/core/src/index.ts', import.meta.url),
+      ),
+    },
   },
   server: {
     port: 5173,

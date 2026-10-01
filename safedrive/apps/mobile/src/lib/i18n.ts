@@ -51,7 +51,8 @@ const he = {
   logout: 'התנתקות',
   score: 'ציון',
   phoneUsage: 'זיהוי שימוש בטלפון',
-  phoneUsageHint: 'אפשר לזהות רק שימוש ב-SafeDrive עצמה בזמן תנועה. שימוש באפליקציות אחרות חסום ע״י מערכת ההפעלה.',
+  phoneUsageHint:
+    'אפשר לזהות רק שימוש ב-SafeDrive עצמה בזמן תנועה. שימוש באפליקציות אחרות חסום ע״י מערכת ההפעלה.',
   bgMissingHint: 'בלי מיקום ברקע הניטור נעצר כשעוברים לאפליקציית ניווט או נועלים מסך.',
   error: 'שגיאה',
 };
@@ -105,8 +106,10 @@ const en: Record<Key, string> = {
   logout: 'Sign out',
   score: 'Score',
   phoneUsage: 'Phone-usage detection',
-  phoneUsageHint: 'Only interaction with SafeDrive itself while moving can be detected. Other apps are blocked by the OS.',
-  bgMissingHint: 'Without background location, monitoring stops when you switch to a navigation app or lock the screen.',
+  phoneUsageHint:
+    'Only interaction with SafeDrive itself while moving can be detected. Other apps are blocked by the OS.',
+  bgMissingHint:
+    'Without background location, monitoring stops when you switch to a navigation app or lock the screen.',
   error: 'Error',
 };
 
@@ -126,4 +129,5 @@ export function s(key: Key, vars: Record<string, string | number> = {}): string 
   return raw.replace(/\{(\w+)\}/g, (_, k: string) => String(vars[k] ?? ''));
 }
 
-export const tc = (key: string, vars: Record<string, string | number> = {}): string => coreT(lang, key, vars);
+export const tc = (key: string, vars: Record<string, string | number> = {}): string =>
+  coreT(lang, key, vars);

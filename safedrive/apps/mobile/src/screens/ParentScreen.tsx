@@ -43,7 +43,11 @@ export function ParentScreen({ family }: { family: FamilyRef }) {
   }, [load]);
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.pad} refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={styles.pad}
+      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+    >
       <Text style={styles.h1}>{family.name}</Text>
       <Text style={styles.h2}>{s('liveTrips')}</Text>
       {live.length === 0 && <Text style={styles.muted}>{s('noLiveTrips')}</Text>}
@@ -52,10 +56,13 @@ export function ParentScreen({ family }: { family: FamilyRef }) {
           {v.isDemo && <Banner text={s('demoBadge')} color="#7c3aed" />}
           <View style={styles.between}>
             <Text style={styles.h2}>{v.driverName}</Text>
-            <Text style={{ color: SEVERITY_COLORS[v.severity], fontWeight: '800' }}>{tc(`severity.${v.severity}`)}</Text>
+            <Text style={{ color: SEVERITY_COLORS[v.severity], fontWeight: '800' }}>
+              {tc(`severity.${v.severity}`)}
+            </Text>
           </View>
           <Text style={styles.p}>
-            {v.speedKmh !== null ? Math.round(v.speedKmh) : '--'} / {v.limitKmh ?? '—'} {tc('unit.kmh')} · {s('score')} {v.score}
+            {v.speedKmh !== null ? Math.round(v.speedKmh) : '--'} / {v.limitKmh ?? '—'}{' '}
+            {tc('unit.kmh')} · {s('score')} {v.score}
           </Text>
           <Text style={styles.muted}>{v.connection}</Text>
         </Card>
@@ -65,7 +72,9 @@ export function ParentScreen({ family }: { family: FamilyRef }) {
         <Card key={n.id}>
           <Text style={[styles.p, { fontWeight: n.readAt ? '400' : '700' }]}>{n.title}</Text>
           {n.body ? <Text style={styles.muted}>{n.body}</Text> : null}
-          <Text style={styles.muted}>{new Date(n.createdAt).toLocaleString('he-IL', { timeZone: family.timezone })}</Text>
+          <Text style={styles.muted}>
+            {new Date(n.createdAt).toLocaleString('he-IL', { timeZone: family.timezone })}
+          </Text>
         </Card>
       ))}
     </ScrollView>

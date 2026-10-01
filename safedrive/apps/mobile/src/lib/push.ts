@@ -14,13 +14,23 @@ import { phoneUsageCapabilities } from './phone-usage';
 import { type PermissionLevel } from './trip-controller';
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({ shouldShowAlert: true, shouldPlaySound: true, shouldSetBadge: false }),
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
 });
 
 export async function ensureChannels(): Promise<void> {
   if (Platform.OS !== 'android') return;
-  await Notifications.setNotificationChannelAsync('default', { name: 'כללי', importance: Notifications.AndroidImportance.DEFAULT });
-  await Notifications.setNotificationChannelAsync('alerts', { name: 'התראות מהירות', importance: Notifications.AndroidImportance.HIGH });
+  await Notifications.setNotificationChannelAsync('default', {
+    name: 'כללי',
+    importance: Notifications.AndroidImportance.DEFAULT,
+  });
+  await Notifications.setNotificationChannelAsync('alerts', {
+    name: 'התראות מהירות',
+    importance: Notifications.AndroidImportance.HIGH,
+  });
   await Notifications.setNotificationChannelAsync('critical', {
     name: 'SOS וחריגות קריטיות',
     importance: Notifications.AndroidImportance.MAX,
@@ -34,10 +44,15 @@ async function pushToken(): Promise<{ token: string | null; status: string }> {
   let status = perm.status;
   if (status !== 'granted') status = (await Notifications.requestPermissionsAsync()).status;
   if (status !== 'granted') return { token: null, status: 'denied' };
-  const projectId = (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId;
-  if (!Device.isDevice || !projectId || projectId.startsWith('REPLACE')) return { token: null, status: 'granted' };
+  const projectId = (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)
+    ?.eas?.projectId;
+  if (!Device.isDevice || !projectId || projectId.startsWith('REPLACE'))
+    return { token: null, status: 'granted' };
   try {
-    return { token: (await Notifications.getExpoPushTokenAsync({ projectId })).data, status: 'granted' };
+    return {
+      token: (await Notifications.getExpoPushTokenAsync({ projectId })).data,
+      status: 'granted',
+    };
   } catch {
     return { token: null, status: 'granted' };
   }
@@ -57,8 +72,14 @@ export async function registerDevice(location: PermissionLevel): Promise<string 
     ...(push.token ? { pushProvider: 'expo' } : {}),
     capabilities: { ...phoneUsageCapabilities(), backgroundLocation: location === 'background' },
     permissions: {
-      location_foreground: location === 'background' || location === 'foreground' ? 'granted' : location,
-      location_background: location === 'background' ? 'granted' : location === 'undetermined' ? 'undetermined' : 'denied',
+      location_foreground:
+        location === 'background' || location === 'foreground' ? 'granted' : location,
+      location_background:
+        location === 'background'
+          ? 'granted'
+          : location === 'undetermined'
+            ? 'undetermined'
+            : 'denied',
       notifications: push.status === 'granted' ? 'granted' : 'denied',
     },
   };
@@ -81,6 +102,8 @@ export async function registerDevice(location: PermissionLevel): Promise<string 
 }
 
 export function onNotificationTap(fn: (data: Record<string, unknown>) => void): () => void {
-  const sub = Notifications.addNotificationResponseReceivedListener((r) => fn((r.notification.request.content.data ?? {}) as Record<string, unknown>));
+  const sub = Notifications.addNotificationResponseReceivedListener((r) =>
+    fn((r.notification.request.content.data ?? {}) as Record<string, unknown>),
+  );
   return () => sub.remove();
 }

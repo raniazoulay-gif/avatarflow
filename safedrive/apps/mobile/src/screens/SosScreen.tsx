@@ -27,13 +27,24 @@ export function SosScreen({ family, onBack }: { family: FamilyRef; onBack: () =>
       <Text style={styles.h1}>{s('sos')}</Text>
       <Text style={styles.muted}>{s('sosHint')}</Text>
       {profile.emergencyNumbers.map((e) => (
-        <Button key={e.number} big kind="danger" title={`${tc(e.labelKey)} · ${e.number}`} onPress={() => dial(e.number)} />
+        <Button
+          key={e.number}
+          big
+          kind="danger"
+          title={`${tc(e.labelKey)} · ${e.number}`}
+          onPress={() => dial(e.number)}
+        />
       ))}
       {contacts.length > 0 && (
         <Card>
           <Text style={styles.h2}>{s('emergencyContacts')}</Text>
           {contacts.map((c) => (
-            <Button key={c.id} kind="ghost" title={`${c.name}${c.relation ? ` (${c.relation})` : ''} · ${c.phone}`} onPress={() => dial(c.phone)} />
+            <Button
+              key={c.id}
+              kind="ghost"
+              title={`${c.name}${c.relation ? ` (${c.relation})` : ''} · ${c.phone}`}
+              onPress={() => dial(c.phone)}
+            />
           ))}
         </Card>
       )}

@@ -12,7 +12,11 @@ config.resolver.nodeModulesPaths = [path.resolve(__dirname, 'node_modules')];
 const defaultResolve = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   const resolve = defaultResolve ?? context.resolveRequest;
-  if (moduleName.startsWith('.') && moduleName.endsWith('.js') && context.originModulePath.startsWith(coreDir)) {
+  if (
+    moduleName.startsWith('.') &&
+    moduleName.endsWith('.js') &&
+    context.originModulePath.startsWith(coreDir)
+  ) {
     try {
       return resolve(context, moduleName.slice(0, -3), platform);
     } catch {

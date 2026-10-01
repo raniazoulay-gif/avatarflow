@@ -27,17 +27,41 @@ export function AuthScreen() {
   };
 
   return (
-    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView
+      style={styles.screen}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <ScrollView contentContainerStyle={[styles.pad, { paddingTop: 80 }]}>
         <Text style={[styles.h1, { fontSize: 34 }]}>SafeDrive</Text>
         <Text style={styles.muted}>{tc('app.tagline')}</Text>
         <Card>
           {mode === 'register' && <Field label={s('name')} value={name} onChangeText={setName} />}
-          <Field label={s('email')} value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" autoComplete="email" />
-          <Field label={s('password')} value={password} onChangeText={setPassword} secureTextEntry autoComplete="password" />
+          <Field
+            label={s('email')}
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            autoComplete="email"
+          />
+          <Field
+            label={s('password')}
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            autoComplete="password"
+          />
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <Button title={mode === 'login' ? s('login') : s('register')} onPress={submit} busy={busy} />
-          <Button kind="ghost" title={mode === 'login' ? s('noAccount') : s('haveAccount')} onPress={() => setMode(mode === 'login' ? 'register' : 'login')} />
+          <Button
+            title={mode === 'login' ? s('login') : s('register')}
+            onPress={submit}
+            busy={busy}
+          />
+          <Button
+            kind="ghost"
+            title={mode === 'login' ? s('noAccount') : s('haveAccount')}
+            onPress={() => setMode(mode === 'login' ? 'register' : 'login')}
+          />
         </Card>
       </ScrollView>
     </KeyboardAvoidingView>

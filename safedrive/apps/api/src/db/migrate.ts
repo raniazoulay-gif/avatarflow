@@ -3,7 +3,9 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { type Db } from './pool.js';
 
-export const MIGRATIONS_DIR = fileURLToPath(new URL('../../../../database/migrations/', import.meta.url));
+export const MIGRATIONS_DIR = fileURLToPath(
+  new URL('../../../../database/migrations/', import.meta.url),
+);
 
 /** Applies pending *.sql migrations in name order, each in its own transaction, under an advisory lock. */
 export async function migrate(db: Db, dir = MIGRATIONS_DIR): Promise<string[]> {
@@ -14,7 +16,11 @@ export async function migrate(db: Db, dir = MIGRATIONS_DIR): Promise<string[]> {
     await client.query(
       'CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())',
     );
-    const done = new Set((await client.query<{ name: string }>('SELECT name FROM schema_migrations')).rows.map((r) => r.name));
+    const done = new Set(
+      (await client.query<{ name: string }>('SELECT name FROM schema_migrations')).rows.map(
+        (r) => r.name,
+      ),
+    );
     const files = (await readdir(dir)).filter((f) => f.endsWith('.sql')).sort();
     for (const f of files) {
       if (done.has(f)) continue;

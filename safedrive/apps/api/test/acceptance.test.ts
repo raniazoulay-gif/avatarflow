@@ -6,7 +6,15 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import { makeApp, makePoints, repeat, resetDatabase, setupFamily, type TestApp, type FamilySetup } from './helpers.js';
+import {
+  makeApp,
+  makePoints,
+  repeat,
+  resetDatabase,
+  setupFamily,
+  type TestApp,
+  type FamilySetup,
+} from './helpers.js';
 
 let t: TestApp;
 let f: FamilySetup;
@@ -25,7 +33,9 @@ afterAll(async () => {
   await t.close();
 });
 
-function openWs(token: string): Promise<{ ws: WebSocket; messages: Array<{ type: string; data: any }> }> {
+function openWs(
+  token: string,
+): Promise<{ ws: WebSocket; messages: Array<{ type: string; data: any }> }> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(wsUrl);
     const messages: Array<{ type: string; data: any }> = [];
@@ -69,7 +79,9 @@ describe('acceptance: full family driving flow', () => {
 
   it('driving, then speeding for 9 s creates nothing; 10 s creates ONE ATTENTION event', async () => {
     const t0 = Date.now() - 200_000;
-    let r = await f.driver.post(`/trips/${tripId}/telemetry`, { points: makePoints(repeat(20, 90), { startSeq: 1, startT: t0 }) });
+    let r = await f.driver.post(`/trips/${tripId}/telemetry`, {
+      points: makePoints(repeat(20, 90), { startSeq: 1, startT: t0 }),
+    });
     expect(r.status).toBe(200);
     expect(r.body.accepted).toHaveLength(20);
     expect(r.body.live.limitKmh).toBe(100);
@@ -80,12 +92,18 @@ describe('acceptance: full family driving flow', () => {
     let detail = await f.parent.get(`/trips/${tripId}`);
     expect(detail.body.speedingEvents).toHaveLength(0);
     // now 12 seconds continuous at 115 (15% over)
-    r = await f.driver.post(`/trips/${tripId}/telemetry`, { points: makePoints(repeat(12, 115), { startSeq: 32, startT: t0 + 31_000 }) });
+    r = await f.driver.post(`/trips/${tripId}/telemetry`, {
+      points: makePoints(repeat(12, 115), { startSeq: 32, startT: t0 + 31_000 }),
+    });
     expect(r.body.live.severity).toBe('ATTENTION');
     expect(r.body.live.state).toBe('ATTENTION');
     detail = await f.parent.get(`/trips/${tripId}`);
     expect(detail.body.speedingEvents).toHaveLength(1);
-    expect(detail.body.speedingEvents[0]).toMatchObject({ status: 'OPEN', severity: 'ATTENTION', speedLimitKmh: 100 });
+    expect(detail.body.speedingEvents[0]).toMatchObject({
+      status: 'OPEN',
+      severity: 'ATTENTION',
+      speedLimitKmh: 100,
+    });
     expect(await until(() => live.messages.some((m) => m.type === 'speeding.started'))).toBe(true);
     const n = await f.parent.get('/notifications');
     expect(n.body.items.some((x: any) => x.type === 'SPEEDING_ATTENTION')).toBe(true);
@@ -93,8 +111,12 @@ describe('acceptance: full family driving flow', () => {
 
   it('escalates to WARNING and CRITICAL with one notification each, no spam', async () => {
     const t0 = Date.now() - 200_000 + 43_000;
-    await f.driver.post(`/trips/${tripId}/telemetry`, { points: makePoints(repeat(8, 135), { startSeq: 44, startT: t0 }) });
-    await f.driver.post(`/trips/${tripId}/telemetry`, { points: makePoints(repeat(8, 156), { startSeq: 52, startT: t0 + 8000 }) });
+    await f.driver.post(`/trips/${tripId}/telemetry`, {
+      points: makePoints(repeat(8, 135), { startSeq: 44, startT: t0 }),
+    });
+    await f.driver.post(`/trips/${tripId}/telemetry`, {
+      points: makePoints(repeat(8, 156), { startSeq: 52, startT: t0 + 8000 }),
+    });
     const n = await f.parent.get('/notifications');
     const types = n.body.items.map((x: any) => x.type);
     expect(types.filter((x: string) => x === 'SPEEDING_WARNING')).toHaveLength(1);
@@ -103,21 +125,36 @@ describe('acceptance: full family driving flow', () => {
     expect(crit.priority).toBe('critical');
     expect(crit.sound).toBe(true);
     const liveTrips = await f.parent.get(`/families/${f.familyId}/live`);
-    expect(liveTrips.body[0]).toMatchObject({ severity: 'CRITICAL', state: 'CRITICAL', limitKmh: 100 });
+    expect(liveTrips.body[0]).toMatchObject({
+      severity: 'CRITICAL',
+      state: 'CRITICAL',
+      limitKmh: 100,
+    });
     expect(liveTrips.body[0].speedingSeconds).toBeGreaterThanOrEqual(25);
   });
 
   it('slowing down closes the event with a full summary', async () => {
     const t0 = Date.now() - 200_000 + 59_000;
-    const r = await f.driver.post(`/trips/${tripId}/telemetry`, { points: makePoints(repeat(10, 90), { startSeq: 60, startT: t0 }) });
+    const r = await f.driver.post(`/trips/${tripId}/telemetry`, {
+      points: makePoints(repeat(10, 90), { startSeq: 60, startT: t0 }),
+    });
     expect(r.body.live.severity).toBe('SAFE');
     expect(r.body.live.state).toBe('ACTIVE');
     const detail = await f.parent.get(`/trips/${tripId}`);
     const ev = detail.body.speedingEvents[0];
-    expect(ev).toMatchObject({ status: 'CLOSED', severity: 'CRITICAL', maxSpeedKmh: 156, maxExcessKmh: 56, maxExcessPct: 56, endReason: 'recovered' });
+    expect(ev).toMatchObject({
+      status: 'CLOSED',
+      severity: 'CRITICAL',
+      maxSpeedKmh: 156,
+      maxExcessKmh: 56,
+      maxExcessPct: 56,
+      endReason: 'recovered',
+    });
     expect(ev.durationSec).toBe(28); // 12+8+8 samples over the limit, closed at the first sample back under
     const n = await f.parent.get('/notifications');
-    expect(n.body.items.some((x: any) => x.type === 'SPEEDING_ENDED' && x.body.includes('00:28'))).toBe(true);
+    expect(
+      n.body.items.some((x: any) => x.type === 'SPEEDING_ENDED' && x.body.includes('00:28')),
+    ).toBe(true);
   });
 
   it('driver ends the trip; summary, history and score are available to the parent', async () => {
@@ -125,11 +162,17 @@ describe('acceptance: full family driving flow', () => {
     expect(r.status).toBe(200);
     expect(r.body.state).toBe('COMPLETED');
     const detail = await f.parent.get(`/trips/${tripId}`);
-    expect(detail.body).toMatchObject({ state: 'COMPLETED', maxSpeedKmh: 156, counts: { speeding: 1, critical: 1 } });
+    expect(detail.body).toMatchObject({
+      state: 'COMPLETED',
+      maxSpeedKmh: 156,
+      counts: { speeding: 1, critical: 1 },
+    });
     expect(detail.body.distanceM).toBeGreaterThan(1500);
     expect(detail.body.score).toBeLessThan(100);
     expect(detail.body.scoreBreakdown.speeding).toBeLessThan(0);
-    expect(detail.body.events.map((e: any) => e.type)).toEqual(expect.arrayContaining(['TRIP_STARTED', 'SPEEDING', 'TRIP_ENDED']));
+    expect(detail.body.events.map((e: any) => e.type)).toEqual(
+      expect.arrayContaining(['TRIP_STARTED', 'SPEEDING', 'TRIP_ENDED']),
+    );
     const pts = await f.parent.get(`/trips/${tripId}/points`);
     expect(pts.body.length).toBe(69);
     expect(pts.body[0]).toHaveProperty('limitKmh', 100);
@@ -141,7 +184,13 @@ describe('acceptance: full family driving flow', () => {
   });
 
   it('driver triggers SOS; parent receives a critical alert and can acknowledge', async () => {
-    const r = await f.driver.post('/sos', { clientId: crypto.randomUUID(), driverId: f.driverId, lat: 32.1, lon: 34.8, speedMs: 0 });
+    const r = await f.driver.post('/sos', {
+      clientId: crypto.randomUUID(),
+      driverId: f.driverId,
+      lat: 32.1,
+      lon: 34.8,
+      speedMs: 0,
+    });
     expect(r.status).toBe(200);
     expect(await until(() => live.messages.some((m) => m.type === 'sos'))).toBe(true);
     const n = await f.parent.get('/notifications');
@@ -157,6 +206,8 @@ describe('acceptance: full family driving flow', () => {
   it('push notifications are delivered by the worker', async () => {
     const res = await t.ctx.notifications.deliverPending(100);
     expect(res.sent).toBeGreaterThan(3);
-    expect(t.push.sent.some((m) => m.token === 'ExponentPushToken[parent]' && m.priority === 'critical')).toBe(true);
+    expect(
+      t.push.sent.some((m) => m.token === 'ExponentPushToken[parent]' && m.priority === 'critical'),
+    ).toBe(true);
   });
 });

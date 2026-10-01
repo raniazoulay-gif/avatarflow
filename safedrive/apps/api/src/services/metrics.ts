@@ -21,10 +21,18 @@ export class Metrics {
     return this.counters.get(name) ?? 0;
   }
 
-  snapshot(): { counters: Record<string, number>; timings: Record<string, { count: number; avgMs: number; maxMs: number }>; uptimeSec: number } {
+  snapshot(): {
+    counters: Record<string, number>;
+    timings: Record<string, { count: number; avgMs: number; maxMs: number }>;
+    uptimeSec: number;
+  } {
     const timings: Record<string, { count: number; avgMs: number; maxMs: number }> = {};
     for (const [k, v] of this.timings) {
-      timings[k] = { count: v.count, avgMs: Math.round((v.totalMs / v.count) * 10) / 10, maxMs: Math.round(v.maxMs) };
+      timings[k] = {
+        count: v.count,
+        avgMs: Math.round((v.totalMs / v.count) * 10) / 10,
+        maxMs: Math.round(v.maxMs),
+      };
     }
     return {
       counters: Object.fromEntries(this.counters),

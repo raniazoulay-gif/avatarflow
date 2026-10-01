@@ -37,10 +37,14 @@ describe('speed math', () => {
   });
 
   it('accepts configured thresholds and rejects invalid ones', () => {
-    const cfg = resolveSafetyConfig({ speeding: { thresholds: { attentionPct: 5, warningPct: 20, criticalPct: 40 } } });
+    const cfg = resolveSafetyConfig({
+      speeding: { thresholds: { attentionPct: 5, warningPct: 20, criticalPct: 40 } },
+    });
     expect(severityForExcess(6, cfg.speeding.thresholds)).toBe('ATTENTION');
     expect(cfg.speeding.confirmationSeconds).toBe(10);
-    expect(() => resolveSafetyConfig({ speeding: { thresholds: { attentionPct: 40, warningPct: 20 } } })).toThrow();
+    expect(() =>
+      resolveSafetyConfig({ speeding: { thresholds: { attentionPct: 40, warningPct: 20 } } }),
+    ).toThrow();
   });
 
   it('converts units and measures distance', () => {

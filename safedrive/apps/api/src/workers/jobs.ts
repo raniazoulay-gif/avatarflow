@@ -21,7 +21,10 @@ export async function detectOffline(ctx: AppContext): Promise<number> {
     [String(ctx.env.OFFLINE_AFTER_SECONDS)],
   );
   for (const t of rows) {
-    await ctx.bus.publish(familyChannel(t.family_id), { type: 'trip.update', data: liveView(t, t.display_name, ctx.env.OFFLINE_AFTER_SECONDS) });
+    await ctx.bus.publish(familyChannel(t.family_id), {
+      type: 'trip.update',
+      data: liveView(t, t.display_name, ctx.env.OFFLINE_AFTER_SECONDS),
+    });
     await ctx.notifications.notifyParents({
       familyId: t.family_id,
       type: 'DRIVER_OFFLINE',
@@ -36,7 +39,13 @@ export async function detectOffline(ctx: AppContext): Promise<number> {
     await ctx.db.query(
       `INSERT INTO safety_events (family_id, driver_id, trip_id, type, occurred_at, is_demo, dedupe_key)
        VALUES ($1, $2, $3, 'CONNECTIVITY_LOSS', now(), $4, $5) ON CONFLICT DO NOTHING`,
-      [t.family_id, t.driver_id, t.id, t.is_demo, `offline:${(t.last_point_at ?? t.started_at).getTime()}`],
+      [
+        t.family_id,
+        t.driver_id,
+        t.id,
+        t.is_demo,
+        `offline:${(t.last_point_at ?? t.started_at).getTime()}`,
+      ],
     );
   }
   return rows.length;
@@ -49,7 +58,8 @@ export async function autoEndTrips(ctx: AppContext): Promise<number> {
        AND coalesce(last_point_at, started_at) < now() - ($1 || ' minutes')::interval LIMIT 50`,
     [String(ctx.env.AUTO_END_TRIP_AFTER_MINUTES)],
   );
-  for (const r of rows) await ctx.trips.stop(r.id, { userId: null, reason: 'auto' }).catch(() => undefined);
+  for (const r of rows)
+    await ctx.trips.stop(r.id, { userId: null, reason: 'auto' }).catch(() => undefined);
   await ctx.monitoring.expireOld();
   return rows.length;
 }
@@ -76,20 +86,27 @@ export async function ensurePartitions(ctx: AppContext, now = new Date()): Promi
  * key 'retention'). Raw telemetry is short-lived; trip summaries and events live longer.
  */
 export async function applyRetention(ctx: AppContext): Promise<Record<string, number>> {
-  const cfgRow = await ctx.db.query<{ value: Partial<{ rawTelemetryDays: number; tripSummaryDays: number; auditLogDays: number }> }>(
-    `SELECT value FROM app_config WHERE scope = 'global' AND key = 'retention'`,
-  );
+  const cfgRow = await ctx.db.query<{
+    value: Partial<{ rawTelemetryDays: number; tripSummaryDays: number; auditLogDays: number }>;
+  }>(`SELECT value FROM app_config WHERE scope = 'global' AND key = 'retention'`);
   const r = { ...countryProfile('IL').retention, ...(cfgRow.rows[0]?.value ?? {}) };
   const raw = await ctx.db.query(
     `DELETE FROM telemetry_points WHERE recorded_at < now() - ($1 || ' days')::interval
        AND trip_id IN (SELECT id FROM trips WHERE ended_at IS NOT NULL)`,
     [String(r.rawTelemetryDays)],
   );
-  const audits = await ctx.db.query(`DELETE FROM audit_logs WHERE at < now() - ($1 || ' days')::interval`, [String(r.auditLogDays)]);
-  const notes = await ctx.db.query(`DELETE FROM notifications WHERE created_at < now() - interval '180 days'`);
+  const audits = await ctx.db.query(
+    `DELETE FROM audit_logs WHERE at < now() - ($1 || ' days')::interval`,
+    [String(r.auditLogDays)],
+  );
+  const notes = await ctx.db.query(
+    `DELETE FROM notifications WHERE created_at < now() - interval '180 days'`,
+  );
   const cache1 = await ctx.db.query(`DELETE FROM speed_limits WHERE expires_at < now()`);
   const cache2 = await ctx.db.query(`DELETE FROM provider_cache WHERE expires_at < now()`);
-  const sessions = await ctx.db.query(`DELETE FROM device_sessions WHERE expires_at < now() - interval '30 days'`);
+  const sessions = await ctx.db.query(
+    `DELETE FROM device_sessions WHERE expires_at < now() - interval '30 days'`,
+  );
   return {
     telemetryPoints: raw.rowCount ?? 0,
     auditLogs: audits.rowCount ?? 0,

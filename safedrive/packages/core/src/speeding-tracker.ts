@@ -86,12 +86,7 @@ export interface SpeedingState {
 }
 
 export type LiveSpeedStatus =
-  | 'SAFE'
-  | 'ATTENTION'
-  | 'WARNING'
-  | 'CRITICAL'
-  | 'LIMIT_UNAVAILABLE'
-  | 'GPS_UNRELIABLE';
+  'SAFE' | 'ATTENTION' | 'WARNING' | 'CRITICAL' | 'LIMIT_UNAVAILABLE' | 'GPS_UNRELIABLE';
 
 export interface LiveSpeedInfo {
   /** Confirmed status (only an open event raises it above SAFE). */
@@ -190,10 +185,15 @@ export function processSpeedSample(
     if (state.event && (s.t - state.event.lastSpeedingTime) / 1000 > cfg.staleEventSeconds) {
       close('stale', state.event.lastSpeedingTime);
     }
-    return { state, outputs, live: { ...baseLive, status: state.event ? state.event.severity : 'GPS_UNRELIABLE' } };
+    return {
+      state,
+      outputs,
+      live: { ...baseLive, status: state.event ? state.event.severity : 'GPS_UNRELIABLE' },
+    };
   }
 
-  const limitOk = s.limit !== null && s.limit.kmh > 0 && s.limit.confidence >= cfg.minLimitConfidence;
+  const limitOk =
+    s.limit !== null && s.limit.kmh > 0 && s.limit.confidence >= cfg.minLimitConfidence;
   if (!limitOk) {
     state.candidate = null;
     if (state.event) close('limit_unavailable', state.event.lastSpeedingTime);
@@ -296,7 +296,11 @@ export function finishSpeeding(prev: SpeedingState): SpeedingStepResult {
   const state = clone(prev);
   const outputs: SpeedingOutput[] = [];
   if (state.event) {
-    outputs.push({ type: 'ended', reason: 'trip_end', event: snapshot(state.event, state.event.lastSpeedingTime) });
+    outputs.push({
+      type: 'ended',
+      reason: 'trip_end',
+      event: snapshot(state.event, state.event.lastSpeedingTime),
+    });
   }
   state.event = null;
   state.candidate = null;

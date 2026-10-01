@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { randomUUID } from 'node:crypto';
 import { type FastifyInstance } from 'fastify';
 import pg from 'pg';
@@ -7,10 +6,15 @@ import { buildApp } from '../src/app.js';
 import { migrate } from '../src/db/migrate.js';
 import { type AppContext } from '../src/context.js';
 import { LogPushProvider } from '../src/providers/push/push.js';
-import { type SpeedLimitProvider, type SpeedLimitQuery, type SpeedLimitResult } from '../src/providers/speed-limit/types.js';
+import {
+  type SpeedLimitProvider,
+  type SpeedLimitQuery,
+  type SpeedLimitResult,
+} from '../src/providers/speed-limit/types.js';
 import { clearConfigCache } from '../src/services/app-config.js';
 
-export const TEST_DB = process.env.TEST_DATABASE_URL ?? 'postgres://safedrive:safedrive@localhost:5432/safedrive_test';
+export const TEST_DB =
+  process.env.TEST_DATABASE_URL ?? 'postgres://safedrive:safedrive@localhost:5432/safedrive_test';
 
 export function testEnv(extra: Record<string, string> = {}) {
   return loadEnv({
@@ -21,6 +25,7 @@ export function testEnv(extra: Record<string, string> = {}) {
     PUSH_PROVIDER: 'log',
     DEMO_MODE_ENABLED: 'true',
     RATE_LIMIT_PER_MINUTE: '100000',
+    AUTH_RATE_LIMIT_PER_MINUTE: '100000',
     BOOTSTRAP_ADMIN_EMAIL: 'admin@safedrive.test',
     ...extra,
   });
@@ -41,7 +46,15 @@ export class FakeSpeedLimitProvider implements SpeedLimitProvider {
     const kmh = this.limitAt(q);
     return kmh === null
       ? null
-      : { limitKmh: kmh, confidence: 0.9, source: 'fake', roadName: 'Route 1', externalId: null, country: 'IL', region: null };
+      : {
+          limitKmh: kmh,
+          confidence: 0.9,
+          source: 'fake',
+          roadName: 'Route 1',
+          externalId: null,
+          country: 'IL',
+          region: null,
+        };
   }
 }
 
@@ -61,9 +74,17 @@ export interface TestApp {
   provider: FakeSpeedLimitProvider;
 }
 
-export async function makeApp(provider = new FakeSpeedLimitProvider(), env: Record<string, string> = {}): Promise<TestApp> {
+export async function makeApp(
+  provider = new FakeSpeedLimitProvider(),
+  env: Record<string, string> = {},
+): Promise<TestApp> {
   const push = new LogPushProvider();
-  const built = await buildApp({ env: testEnv(env), push, speedLimitProviders: [provider], logger: false });
+  const built = await buildApp({
+    env: testEnv(env),
+    push,
+    speedLimitProviders: [provider],
+    logger: false,
+  });
   await built.app.ready();
   return { ...built, push, provider };
 }
@@ -78,7 +99,12 @@ export interface Client {
   del: <T = any>(url: string, body?: unknown) => Promise<{ status: number; body: T }>;
 }
 
-export function client(app: FastifyInstance, token: string, refreshToken = '', userId = ''): Client {
+export function client(
+  app: FastifyInstance,
+  token: string,
+  refreshToken = '',
+  userId = '',
+): Client {
   const call = async (method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: string, body?: unknown) => {
     const r = await app.inject({
       method,
@@ -99,7 +125,11 @@ export function client(app: FastifyInstance, token: string, refreshToken = '', u
   };
 }
 
-export async function register(app: FastifyInstance, name: string, email = `${randomUUID()}@safedrive.test`): Promise<Client> {
+export async function register(
+  app: FastifyInstance,
+  name: string,
+  email = `${randomUUID()}@safedrive.test`,
+): Promise<Client> {
   const r = await app.inject({
     method: 'POST',
     url: '/auth/register',
@@ -121,7 +151,10 @@ export interface FamilySetup {
 export async function setupFamily(app: FastifyInstance, driverName = 'Romi'): Promise<FamilySetup> {
   const parent = await register(app, 'Parent');
   const fam = await parent.post('/families', { name: 'Azoulay' });
-  const inv = await parent.post(`/families/${fam.body.id}/invites`, { role: 'DRIVER', displayName: driverName });
+  const inv = await parent.post(`/families/${fam.body.id}/invites`, {
+    role: 'DRIVER',
+    displayName: driverName,
+  });
   const driver = await register(app, driverName);
   const joined = await driver.post('/invites/accept', { code: inv.body.code, consent: true });
   if (joined.status !== 200) throw new Error(`join failed ${JSON.stringify(joined.body)}`);
@@ -132,13 +165,25 @@ export async function setupFamily(app: FastifyInstance, driverName = 'Romi'): Pr
     permissions: { locationAlways: 'granted' },
   });
   await parent.post('/devices', { platform: 'ios', pushToken: 'ExponentPushToken[parent]' });
-  return { parent, driver, familyId: fam.body.id, driverId: joined.body.driverId, deviceId: dev.body.id };
+  return {
+    parent,
+    driver,
+    familyId: fam.body.id,
+    driverId: joined.body.driverId,
+    deviceId: dev.body.id,
+  };
 }
 
 /** 1 Hz points moving north (~speed m/s apart) starting at seq/time. */
 export function makePoints(
   speedsKmh: Array<number | null>,
-  opts: { startSeq?: number; startT?: number; lat?: number; accuracyM?: number; extra?: Record<string, unknown> } = {},
+  opts: {
+    startSeq?: number;
+    startT?: number;
+    lat?: number;
+    accuracyM?: number;
+    extra?: Record<string, unknown>;
+  } = {},
 ) {
   let lat = opts.lat ?? 32.0;
   const startSeq = opts.startSeq ?? 1;

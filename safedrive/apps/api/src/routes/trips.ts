@@ -44,11 +44,15 @@ export function tripRoutes(app: FastifyInstance, ctx: AppContext): void {
   });
 
   /** Idempotent batch upload (offline queue). Duplicates are acknowledged, never re-processed. */
-  app.post('/trips/:id/telemetry', { ...auth, bodyLimit: 512 * 1024, config: { rateLimit: { max: 600, timeWindow: '1 minute' } } }, async (req) => {
-    const { id: tripId } = parse(id, req.params);
-    const b = parse(z.object({ points: z.array(point).max(MAX_BATCH) }), req.body);
-    return ctx.telemetry.ingest(me(req).id, tripId, b.points);
-  });
+  app.post(
+    '/trips/:id/telemetry',
+    { ...auth, bodyLimit: 512 * 1024, config: { rateLimit: { max: 600, timeWindow: '1 minute' } } },
+    async (req) => {
+      const { id: tripId } = parse(id, req.params);
+      const b = parse(z.object({ points: z.array(point).max(MAX_BATCH) }), req.body);
+      return ctx.telemetry.ingest(me(req).id, tripId, b.points);
+    },
+  );
 
   app.post('/trips/:id/events', auth, async (req) => {
     const { id: tripId } = parse(id, req.params);
@@ -57,7 +61,9 @@ export function tripRoutes(app: FastifyInstance, ctx: AppContext): void {
         clientId: z.string().uuid(),
         type: z.enum(['PHONE_USAGE', 'GPS_UNAVAILABLE', 'PERMISSION_PROBLEM', 'CONNECTIVITY_LOSS']),
         at: z.number().int(),
-        data: z.record(z.union([z.string().max(200), z.number(), z.boolean(), z.null()])).default({}),
+        data: z
+          .record(z.union([z.string().max(200), z.number(), z.boolean(), z.null()]))
+          .default({}),
       }),
       req.body,
     );
@@ -83,7 +89,9 @@ export function tripRoutes(app: FastifyInstance, ctx: AppContext): void {
        FROM safety_events WHERE trip_id = $1 ORDER BY occurred_at`,
       [tripId],
     );
-    const durationSec = Math.round(((trip.ended_at ?? new Date()).getTime() - trip.started_at.getTime()) / 1000);
+    const durationSec = Math.round(
+      ((trip.ended_at ?? new Date()).getTime() - trip.started_at.getTime()) / 1000,
+    );
     return {
       id: trip.id,
       driverId: trip.driver_id,
@@ -95,7 +103,10 @@ export function tripRoutes(app: FastifyInstance, ctx: AppContext): void {
       durationSec,
       distanceM: Math.round(trip.distance_m),
       maxSpeedKmh: Math.round(trip.max_speed_kmh),
-      avgSpeedKmh: trip.moving_seconds > 0 ? Math.round((trip.distance_m / trip.moving_seconds) * 3.6 * 10) / 10 : 0,
+      avgSpeedKmh:
+        trip.moving_seconds > 0
+          ? Math.round((trip.distance_m / trip.moving_seconds) * 3.6 * 10) / 10
+          : 0,
       score: trip.score,
       scoreBreakdown: trip.score_breakdown,
       counts: {
@@ -105,7 +116,9 @@ export function tripRoutes(app: FastifyInstance, ctx: AppContext): void {
         hardAcceleration: trip.hard_acceleration_count,
         phoneUsage: trip.phone_usage_count,
       },
-      live: trip.ended_at ? null : liveView(trip, a.driver.display_name, ctx.env.OFFLINE_AFTER_SECONDS),
+      live: trip.ended_at
+        ? null
+        : liveView(trip, a.driver.display_name, ctx.env.OFFLINE_AFTER_SECONDS),
       speedingEvents: speeding.rows,
       events: events.rows,
     };
@@ -115,7 +128,10 @@ export function tripRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get('/trips/:id/points', auth, async (req) => {
     const { id: tripId } = parse(id, req.params);
     await requireTripAccess(ctx.db, me(req).id, tripId);
-    const q = parse(z.object({ max: z.coerce.number().int().min(10).max(5000).default(1500) }), req.query);
+    const q = parse(
+      z.object({ max: z.coerce.number().int().min(10).max(5000).default(1500) }),
+      req.query,
+    );
     const { rows } = await ctx.db.query(
       `WITH p AS (
          SELECT seq, recorded_at, lat, lon, speed_kmh, limit_kmh, accuracy_m, row_number() OVER (ORDER BY seq) AS rn,
@@ -126,7 +142,11 @@ export function tripRoutes(app: FastifyInstance, ctx: AppContext): void {
        FROM p WHERE total <= $2 OR rn % ceil(total::numeric / $2)::int = 1 OR rn = total ORDER BY seq`,
       [tripId, q.max],
     );
-    return rows.map((r) => ({ ...r, t: Number(r.t), speedKmh: r.speedKmh === null ? null : Number(r.speedKmh) }));
+    return rows.map((r) => ({
+      ...r,
+      t: Number(r.t),
+      speedKmh: r.speedKmh === null ? null : Number(r.speedKmh),
+    }));
   });
 
   /** The driver's current trip (driver app resumes after restart). */
@@ -137,6 +157,8 @@ export function tripRoutes(app: FastifyInstance, ctx: AppContext): void {
       [me(req).id],
     );
     const t = rows[0];
-    return t ? { ...liveView(t, t.display_name, ctx.env.OFFLINE_AFTER_SECONDS), lastSeq: t.last_seq } : null;
+    return t
+      ? { ...liveView(t, t.display_name, ctx.env.OFFLINE_AFTER_SECONDS), lastSeq: t.last_seq }
+      : null;
   });
 }

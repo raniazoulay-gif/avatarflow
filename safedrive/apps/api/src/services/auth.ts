@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { type Db } from '../db/pool.js';
-import { hashPassword, verifyPassword, passwordProblem, sha256, randomToken } from '../lib/crypto.js';
+import {
+  hashPassword,
+  verifyPassword,
+  passwordProblem,
+  sha256,
+  randomToken,
+} from '../lib/crypto.js';
 import { badRequest, conflict, unauthorized, tooMany } from '../lib/errors.js';
 import { type TokenService } from '../auth/tokens.js';
 import { audit } from './audit.js';
@@ -62,7 +68,10 @@ export class AuthService {
     const email = input.email.trim().toLowerCase();
     const problem = passwordProblem(input.password);
     if (problem) throw badRequest(problem);
-    const exists = await this.db.query('SELECT 1 FROM users WHERE lower(email) = $1 AND deleted_at IS NULL', [email]);
+    const exists = await this.db.query(
+      'SELECT 1 FROM users WHERE lower(email) = $1 AND deleted_at IS NULL',
+      [email],
+    );
     if (exists.rowCount) throw conflict('An account with this email already exists');
     const hash = await hashPassword(input.password);
     const admin = !!this.bootstrapAdminEmail && this.bootstrapAdminEmail.toLowerCase() === email;
@@ -72,19 +81,28 @@ export class AuthService {
       [email, hash, input.displayName.trim(), input.locale ?? 'he', admin],
     );
     const user = rows[0] as UserRow;
-    await audit(this.db, { actorId: user.id, action: 'user.register', targetType: 'user', targetId: user.id, ip: meta.ip ?? null });
+    await audit(this.db, {
+      actorId: user.id,
+      action: 'user.register',
+      targetType: 'user',
+      targetId: user.id,
+      ip: meta.ip ?? null,
+    });
     return this.issue(user, meta);
   }
 
   async login(emailRaw: string, password: string, meta: Meta): Promise<SessionTokens> {
     const email = emailRaw.trim().toLowerCase();
-    const { rows } = await this.db.query<UserRow & { password_hash: string; failed_logins: number; locked_until: Date | null }>(
+    const { rows } = await this.db.query<
+      UserRow & { password_hash: string; failed_logins: number; locked_until: Date | null }
+    >(
       `SELECT id, email, display_name, locale, is_system_admin, status, password_hash, failed_logins, locked_until
        FROM users WHERE lower(email) = $1 AND deleted_at IS NULL`,
       [email],
     );
     const u = rows[0];
-    if (u?.locked_until && u.locked_until > new Date()) throw tooMany('Too many failed attempts. Try again later.');
+    if (u?.locked_until && u.locked_until > new Date())
+      throw tooMany('Too many failed attempts. Try again later.');
     // Always run a hash comparison so response time does not reveal whether the email exists.
     const ok = u
       ? await verifyPassword(password, u.password_hash)
@@ -97,32 +115,65 @@ export class AuthService {
            WHERE id = $1`,
           [u.id, MAX_FAILED, String(LOCK_MINUTES)],
         );
-        await audit(this.db, { actorId: u.id, action: 'auth.login_failed', targetType: 'user', targetId: u.id, ip: meta.ip ?? null });
+        await audit(this.db, {
+          actorId: u.id,
+          action: 'auth.login_failed',
+          targetType: 'user',
+          targetId: u.id,
+          ip: meta.ip ?? null,
+        });
       }
       throw unauthorized('Invalid email or password');
     }
     if (u.status !== 'active') throw unauthorized('Account suspended');
-    await this.db.query('UPDATE users SET failed_logins = 0, locked_until = NULL, last_login_at = now() WHERE id = $1', [u.id]);
-    await audit(this.db, { actorId: u.id, action: 'auth.login', targetType: 'user', targetId: u.id, ip: meta.ip ?? null });
+    await this.db.query(
+      'UPDATE users SET failed_logins = 0, locked_until = NULL, last_login_at = now() WHERE id = $1',
+      [u.id],
+    );
+    await audit(this.db, {
+      actorId: u.id,
+      action: 'auth.login',
+      targetType: 'user',
+      targetId: u.id,
+      ip: meta.ip ?? null,
+    });
     return this.issue(u, meta);
   }
 
-  private async issue(user: UserRow, meta: Meta, chainId: string = randomUUID()): Promise<SessionTokens> {
+  private async issue(
+    user: UserRow,
+    meta: Meta,
+    chainId: string = randomUUID(),
+  ): Promise<SessionTokens> {
     const secret = randomToken();
     const { rows } = await this.db.query<{ id: string }>(
       `INSERT INTO device_sessions (user_id, device_id, chain_id, token_hash, expires_at, ip, user_agent)
        VALUES ($1, $2, $3, $4, now() + ($5 || ' days')::interval, $6, $7) RETURNING id`,
-      [user.id, meta.deviceId ?? null, chainId, sha256(secret), String(this.refreshTtlDays), meta.ip ?? null, meta.userAgent ?? null],
+      [
+        user.id,
+        meta.deviceId ?? null,
+        chainId,
+        sha256(secret),
+        String(this.refreshTtlDays),
+        meta.ip ?? null,
+        meta.userAgent ?? null,
+      ],
     );
     const sid = (rows[0] as { id: string }).id;
     const accessToken = await this.tokens.sign({ sub: user.id, sid, adm: user.is_system_admin });
-    return { accessToken, refreshToken: `${sid}.${secret}`, expiresIn: this.accessTtl, user: publicUser(user) };
+    return {
+      accessToken,
+      refreshToken: `${sid}.${secret}`,
+      expiresIn: this.accessTtl,
+      user: publicUser(user),
+    };
   }
 
   /** Rotates a refresh token. Reusing an already-rotated token revokes the whole chain. */
   async refresh(refreshToken: string, meta: Meta): Promise<SessionTokens> {
     const [sid, secret] = refreshToken.split('.');
-    if (!sid || !secret || !/^[0-9a-f-]{36}$/.test(sid)) throw unauthorized('Invalid refresh token');
+    if (!sid || !secret || !/^[0-9a-f-]{36}$/.test(sid))
+      throw unauthorized('Invalid refresh token');
     const { rows } = await this.db.query<{
       id: string;
       user_id: string;
@@ -136,8 +187,17 @@ export class AuthService {
     const s = rows[0];
     if (!s || s.token_hash !== sha256(secret)) throw unauthorized('Invalid refresh token');
     if (s.rotated_at || s.revoked_at) {
-      await this.db.query('UPDATE device_sessions SET revoked_at = coalesce(revoked_at, now()) WHERE chain_id = $1', [s.chain_id]);
-      await audit(this.db, { actorId: s.user_id, action: 'auth.refresh_reuse_detected', targetType: 'session', targetId: s.id, ip: meta.ip ?? null });
+      await this.db.query(
+        'UPDATE device_sessions SET revoked_at = coalesce(revoked_at, now()) WHERE chain_id = $1',
+        [s.chain_id],
+      );
+      await audit(this.db, {
+        actorId: s.user_id,
+        action: 'auth.refresh_reuse_detected',
+        targetType: 'session',
+        targetId: s.id,
+        ip: meta.ip ?? null,
+      });
       throw unauthorized('Session revoked');
     }
     if (s.expires_at < new Date()) throw unauthorized('Session expired');
@@ -156,11 +216,17 @@ export class AuthService {
   }
 
   async logout(sessionId: string): Promise<void> {
-    await this.db.query('UPDATE device_sessions SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL', [sessionId]);
+    await this.db.query(
+      'UPDATE device_sessions SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL',
+      [sessionId],
+    );
   }
 
   async logoutAll(userId: string): Promise<void> {
-    await this.db.query('UPDATE device_sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [userId]);
+    await this.db.query(
+      'UPDATE device_sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL',
+      [userId],
+    );
   }
 
   /** Access-token check: valid JWT + live session + active user. */

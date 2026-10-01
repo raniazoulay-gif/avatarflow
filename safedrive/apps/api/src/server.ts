@@ -11,7 +11,9 @@ async function main(): Promise<void> {
   await ensurePartitions(ctx);
   const stopWorkers = env.WORKERS_ENABLED ? startWorkers(ctx) : () => undefined;
   await app.listen({ port: env.PORT, host: env.HOST });
-  app.log.warn(`SafeDrive API listening on ${env.HOST}:${env.PORT} (demo mode ${env.DEMO_MODE_ENABLED ? 'ON' : 'OFF'})`);
+  app.log.warn(
+    `SafeDrive API listening on ${env.HOST}:${env.PORT} (demo mode ${env.DEMO_MODE_ENABLED ? 'ON' : 'OFF'})`,
+  );
   const shutdown = async (sig: string) => {
     app.log.warn(`${sig} received, shutting down`);
     stopWorkers();

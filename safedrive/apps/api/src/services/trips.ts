@@ -1,9 +1,4 @@
-import {
-  finishSpeeding,
-  transition,
-  formatDuration,
-  type LiveTripView,
-} from '@safedrive/core';
+import { finishSpeeding, transition, formatDuration, type LiveTripView } from '@safedrive/core';
 import { type Db, withTx } from '../db/pool.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { type RealtimeBus, familyChannel } from '../realtime/bus.js';
@@ -68,7 +63,8 @@ export class TripService {
       );
       const req = mr.rows[0];
       if (!req || req.driver_id !== drv.id) throw badRequest('Unknown monitoring request');
-      if (!['REQUESTED', 'PENDING'].includes(req.status)) throw conflict('Monitoring request is no longer pending');
+      if (!['REQUESTED', 'PENDING'].includes(req.status))
+        throw conflict('Monitoring request is no longer pending');
       remote = true;
     }
     let state = transition(remote ? 'REMOTE_MONITORING_REQUESTED' : 'IDLE', 'START');
@@ -79,9 +75,17 @@ export class TripService {
         const ins = await c.query<TripRow>(
           `INSERT INTO trips (family_id, driver_id, device_id, state, is_demo, demo_scenario, started_by, monitoring_request_id, engine_state)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-          [drv.family_id, drv.id, input.deviceId ?? null, state, isDemo, input.demoScenario ?? null,
-            isDemo && input.demoScenario ? 'demo' : remote ? 'remote_request' : 'driver', input.monitoringRequestId ?? null,
-            initialEngineState()],
+          [
+            drv.family_id,
+            drv.id,
+            input.deviceId ?? null,
+            state,
+            isDemo,
+            input.demoScenario ?? null,
+            isDemo && input.demoScenario ? 'demo' : remote ? 'remote_request' : 'driver',
+            input.monitoringRequestId ?? null,
+            initialEngineState(),
+          ],
         );
         const t = ins.rows[0] as TripRow;
         await c.query(
@@ -90,18 +94,27 @@ export class TripService {
           [drv.family_id, drv.id, t.id, isDemo],
         );
         if (input.monitoringRequestId) {
-          await c.query(`UPDATE monitoring_requests SET status = 'ACTIVE', trip_id = $2, updated_at = now() WHERE id = $1`, [
-            input.monitoringRequestId,
-            t.id,
-          ]);
+          await c.query(
+            `UPDATE monitoring_requests SET status = 'ACTIVE', trip_id = $2, updated_at = now() WHERE id = $1`,
+            [input.monitoringRequestId, t.id],
+          );
         }
         return t;
       });
     } catch (e) {
-      if ((e as { code?: string }).code === '23505') throw conflict('A trip is already in progress for this driver');
+      if ((e as { code?: string }).code === '23505')
+        throw conflict('A trip is already in progress for this driver');
       throw e;
     }
-    await audit(this.d.db, { actorId: userId, familyId: drv.family_id, action: 'trip.start', targetType: 'trip', targetId: trip.id, ip: ip ?? null, details: { remote, isDemo } });
+    await audit(this.d.db, {
+      actorId: userId,
+      familyId: drv.family_id,
+      action: 'trip.start',
+      targetType: 'trip',
+      targetId: trip.id,
+      ip: ip ?? null,
+      details: { remote, isDemo },
+    });
     this.d.metrics.inc('trips_started');
     const view = liveView(trip, drv.display_name, this.d.offlineAfterSec);
     await this.d.bus.publish(familyChannel(drv.family_id), { type: 'trip.started', data: view });
@@ -121,8 +134,13 @@ export class TripService {
   }
 
   /** Ends a trip (driver, or the system after prolonged silence). Idempotent. */
-  async stop(tripId: string, actor: { userId: string | null; reason: 'driver' | 'auto' | 'admin' }): Promise<LiveTripView> {
-    const pre = await this.d.db.query<TripRow & { user_id: string; country_code: string; display_name: string }>(
+  async stop(
+    tripId: string,
+    actor: { userId: string | null; reason: 'driver' | 'auto' | 'admin' },
+  ): Promise<LiveTripView> {
+    const pre = await this.d.db.query<
+      TripRow & { user_id: string; country_code: string; display_name: string }
+    >(
       `SELECT t.*, d.user_id, d.display_name, f.country_code FROM trips t JOIN drivers d ON d.id = t.driver_id
        JOIN families f ON f.id = t.family_id WHERE t.id = $1`,
       [tripId],
@@ -134,13 +152,19 @@ export class TripService {
     const cfg = await safetyConfigFor(this.d.db, t0.family_id, t0.country_code);
 
     const result = await withTx(this.d.db, async (c) => {
-      const locked = await c.query<TripRow>('SELECT * FROM trips WHERE id = $1 FOR UPDATE', [tripId]);
+      const locked = await c.query<TripRow>('SELECT * FROM trips WHERE id = $1 FOR UPDATE', [
+        tripId,
+      ]);
       const trip = locked.rows[0] as TripRow;
       if (trip.ended_at) return { trip, outputs: [] };
-      const es: EngineState = { ...initialEngineState(), ...(trip.engine_state as Partial<EngineState>) };
+      const es: EngineState = {
+        ...initialEngineState(),
+        ...(trip.engine_state as Partial<EngineState>),
+      };
       const fin = finishSpeeding(es.speeding);
       const outputs = [];
-      for (const o of fin.outputs) outputs.push({ out: o, eventId: await this.d.telemetry.persistSpeeding(c, trip, o) });
+      for (const o of fin.outputs)
+        outputs.push({ out: o, eventId: await this.d.telemetry.persistSpeeding(c, trip, o) });
       es.speeding = fin.state;
       // Every live state (and STARTING/ERROR) accepts STOP; then ENDING -> COMPLETED.
       let state = trip.state === 'ENDING' ? trip.state : transition(trip.state, 'STOP');
@@ -153,30 +177,63 @@ export class TripService {
            hard_acceleration_count = $9, phone_usage_count = $10, end_lat = $11, end_lon = $12,
            live = live || jsonb_build_object('severity', 'SAFE', 'speedingSeconds', null, 'confirming', false), updated_at = now()
          WHERE id = $1 RETURNING *`,
-        [trip.id, state, es, score.score, score.breakdown, score.counts.speeding, score.counts.critical,
-          score.counts.hardBraking, score.counts.hardAcceleration, score.counts.phoneUsage, lastFix?.lat ?? null, lastFix?.lon ?? null],
+        [
+          trip.id,
+          state,
+          es,
+          score.score,
+          score.breakdown,
+          score.counts.speeding,
+          score.counts.critical,
+          score.counts.hardBraking,
+          score.counts.hardAcceleration,
+          score.counts.phoneUsage,
+          lastFix?.lat ?? null,
+          lastFix?.lon ?? null,
+        ],
       );
       const done = upd.rows[0] as TripRow;
       await c.query(
         `INSERT INTO safety_events (family_id, driver_id, trip_id, type, occurred_at, is_demo, dedupe_key, data)
          VALUES ($1, $2, $3, 'TRIP_ENDED', $4, $5, 'TRIP_ENDED', $6) ON CONFLICT DO NOTHING`,
-        [trip.family_id, trip.driver_id, trip.id, done.ended_at, trip.is_demo, { reason: actor.reason }],
+        [
+          trip.family_id,
+          trip.driver_id,
+          trip.id,
+          done.ended_at,
+          trip.is_demo,
+          { reason: actor.reason },
+        ],
       );
-      await c.query(`INSERT INTO safety_scores (driver_id, trip_id, scope, score, breakdown) VALUES ($1, $2, 'trip', $3, $4)`, [
-        trip.driver_id, trip.id, score.score, score.breakdown,
-      ]);
+      await c.query(
+        `INSERT INTO safety_scores (driver_id, trip_id, scope, score, breakdown) VALUES ($1, $2, 'trip', $3, $4)`,
+        [trip.driver_id, trip.id, score.score, score.breakdown],
+      );
       if (trip.monitoring_request_id) {
-        await c.query(`UPDATE monitoring_requests SET status = 'COMPLETED', updated_at = now() WHERE id = $1`, [trip.monitoring_request_id]);
+        await c.query(
+          `UPDATE monitoring_requests SET status = 'COMPLETED', updated_at = now() WHERE id = $1`,
+          [trip.monitoring_request_id],
+        );
       }
       return { trip: done, outputs };
     });
 
     if (!result.trip.is_demo) await refreshDriverScore(this.d.db, result.trip.driver_id);
-    await audit(this.d.db, { actorId: actor.userId, familyId: result.trip.family_id, action: 'trip.stop', targetType: 'trip', targetId: tripId, details: { reason: actor.reason } });
+    await audit(this.d.db, {
+      actorId: actor.userId,
+      familyId: result.trip.family_id,
+      action: 'trip.stop',
+      targetType: 'trip',
+      targetId: tripId,
+      details: { reason: actor.reason },
+    });
     this.d.metrics.inc('trips_completed');
     await this.d.telemetry.notifyOutputs(result.trip, t0.display_name, result.outputs);
     const view = liveView(result.trip, t0.display_name, this.d.offlineAfterSec);
-    await this.d.bus.publish(familyChannel(result.trip.family_id), { type: 'trip.ended', data: view });
+    await this.d.bus.publish(familyChannel(result.trip.family_id), {
+      type: 'trip.ended',
+      data: view,
+    });
     await this.d.notifications.notifyParents({
       familyId: result.trip.family_id,
       type: 'TRIP_ENDED',
@@ -186,7 +243,12 @@ export class TripService {
       cooldownGroup: `${tripId}:TRIP_ENDED`,
       titleKey: 'app.name',
       bodyKey: 'notify.ended',
-      vars: { name: t0.display_name, duration: formatDuration((result.trip.ended_at!.getTime() - result.trip.started_at.getTime()) / 1000) },
+      vars: {
+        name: t0.display_name,
+        duration: formatDuration(
+          (result.trip.ended_at!.getTime() - result.trip.started_at.getTime()) / 1000,
+        ),
+      },
       data: { score: result.trip.score, distanceKm: Math.round(result.trip.distance_m / 100) / 10 },
       isDemo: result.trip.is_demo,
     });
@@ -197,9 +259,16 @@ export class TripService {
   async reportClientEvent(
     userId: string,
     tripId: string,
-    e: { clientId: string; type: 'PHONE_USAGE' | 'GPS_UNAVAILABLE' | 'PERMISSION_PROBLEM' | 'CONNECTIVITY_LOSS'; at: number; data: Record<string, unknown> },
+    e: {
+      clientId: string;
+      type: 'PHONE_USAGE' | 'GPS_UNAVAILABLE' | 'PERMISSION_PROBLEM' | 'CONNECTIVITY_LOSS';
+      at: number;
+      data: Record<string, unknown>;
+    },
   ): Promise<{ created: boolean }> {
-    const r = await this.d.db.query<TripRow & { user_id: string; display_name: string; country_code: string }>(
+    const r = await this.d.db.query<
+      TripRow & { user_id: string; display_name: string; country_code: string }
+    >(
       `SELECT t.*, d.user_id, d.display_name, f.country_code FROM trips t JOIN drivers d ON d.id = t.driver_id
        JOIN families f ON f.id = t.family_id WHERE t.id = $1`,
       [tripId],
@@ -209,8 +278,17 @@ export class TripService {
     const ins = await this.d.db.query(
       `INSERT INTO safety_events (family_id, driver_id, trip_id, type, severity, occurred_at, data, is_demo, dedupe_key)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT DO NOTHING RETURNING id`,
-      [trip.family_id, trip.driver_id, trip.id, e.type, e.type === 'PHONE_USAGE' ? 'ATTENTION' : 'SAFE', new Date(e.at), e.data,
-        trip.is_demo, `client:${e.clientId}`],
+      [
+        trip.family_id,
+        trip.driver_id,
+        trip.id,
+        e.type,
+        e.type === 'PHONE_USAGE' ? 'ATTENTION' : 'SAFE',
+        new Date(e.at),
+        e.data,
+        trip.is_demo,
+        `client:${e.clientId}`,
+      ],
     );
     const created = (ins.rowCount ?? 0) > 0;
     if (created && (e.type === 'GPS_UNAVAILABLE' || e.type === 'PERMISSION_PROBLEM')) {
@@ -230,9 +308,10 @@ export class TripService {
     if (created && e.type === 'PHONE_USAGE' && !trip.ended_at) {
       const cfg = await safetyConfigFor(this.d.db, trip.family_id, trip.country_code);
       const s = await scoreTrip(this.d.db, trip.id, cfg);
-      await this.d.db.query('UPDATE trips SET score = $2, score_breakdown = $3, phone_usage_count = $4 WHERE id = $1', [
-        trip.id, s.score, s.breakdown, s.counts.phoneUsage,
-      ]);
+      await this.d.db.query(
+        'UPDATE trips SET score = $2, score_breakdown = $3, phone_usage_count = $4 WHERE id = $1',
+        [trip.id, s.score, s.breakdown, s.counts.phoneUsage],
+      );
     }
     return { created };
   }

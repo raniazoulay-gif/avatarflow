@@ -15,6 +15,14 @@ export async function audit(db: Queryable, e: AuditEntry): Promise<void> {
   await db.query(
     `INSERT INTO audit_logs (actor_id, family_id, action, target_type, target_id, ip, details)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [e.actorId ?? null, e.familyId ?? null, e.action, e.targetType ?? null, e.targetId ?? null, e.ip ?? null, e.details ?? {}],
+    [
+      e.actorId ?? null,
+      e.familyId ?? null,
+      e.action,
+      e.targetType ?? null,
+      e.targetId ?? null,
+      e.ip ?? null,
+      e.details ?? {},
+    ],
   );
 }

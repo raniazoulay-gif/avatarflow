@@ -26,7 +26,11 @@ export async function systemHealth(app: FastifyInstance, ctx: AppContext) {
          FROM notifications`,
       )
     : null;
-  const active = db.ok ? await ctx.db.query<{ n: number }>('SELECT count(*)::int AS n FROM trips WHERE ended_at IS NULL') : null;
+  const active = db.ok
+    ? await ctx.db.query<{ n: number }>(
+        'SELECT count(*)::int AS n FROM trips WHERE ended_at IS NULL',
+      )
+    : null;
   const sent = ctx.metrics.get('push_sent');
   const failed = ctx.metrics.get('push_failed');
   return {
@@ -51,7 +55,13 @@ export function adminRoutes(app: FastifyInstance, ctx: AppContext): void {
   const id = z.object({ id: z.string().uuid() });
 
   app.get('/admin/users', admin, async (req) => {
-    const q = parse(z.object({ q: z.string().max(100).default(''), limit: z.coerce.number().int().min(1).max(200).default(50) }), req.query);
+    const q = parse(
+      z.object({
+        q: z.string().max(100).default(''),
+        limit: z.coerce.number().int().min(1).max(200).default(50),
+      }),
+      req.query,
+    );
     const { rows } = await ctx.db.query(
       `SELECT id, email, display_name AS "displayName", status, is_system_admin AS "isSystemAdmin",
               created_at AS "createdAt", last_login_at AS "lastLoginAt",
@@ -86,16 +96,33 @@ export function adminRoutes(app: FastifyInstance, ctx: AppContext): void {
       'SELECT count(*)::int AS n FROM device_sessions WHERE user_id = $1 AND revoked_at IS NULL AND rotated_at IS NULL AND expires_at > now()',
       [userId],
     );
-    return { ...u.rows[0], families: fams.rows, devices: devices.rows, activeSessions: sessions.rows[0]?.n ?? 0 };
+    return {
+      ...u.rows[0],
+      families: fams.rows,
+      devices: devices.rows,
+      activeSessions: sessions.rows[0]?.n ?? 0,
+    };
   });
 
-  for (const [action, status] of [['suspend', 'suspended'], ['unsuspend', 'active']] as const) {
+  for (const [action, status] of [
+    ['suspend', 'suspended'],
+    ['unsuspend', 'active'],
+  ] as const) {
     app.post(`/admin/users/:id/${action}`, admin, async (req) => {
       const { id: userId } = parse(id, req.params);
       if (userId === me(req).id) throw notFound('Cannot change your own status');
-      await ctx.db.query('UPDATE users SET status = $2, updated_at = now() WHERE id = $1', [userId, status]);
+      await ctx.db.query('UPDATE users SET status = $2, updated_at = now() WHERE id = $1', [
+        userId,
+        status,
+      ]);
       if (status === 'suspended') await ctx.auth.logoutAll(userId);
-      await audit(ctx.db, { actorId: me(req).id, action: `admin.user_${action}`, targetType: 'user', targetId: userId, ip: req.ip });
+      await audit(ctx.db, {
+        actorId: me(req).id,
+        action: `admin.user_${action}`,
+        targetType: 'user',
+        targetId: userId,
+        ip: req.ip,
+      });
       return { ok: true };
     });
   }
@@ -130,7 +157,14 @@ export function adminRoutes(app: FastifyInstance, ctx: AppContext): void {
        WHERE m.family_id = $1 AND m.removed_at IS NULL AND dv.revoked_at IS NULL`,
       [familyId],
     );
-    await audit(ctx.db, { actorId: me(req).id, familyId, action: 'admin.family_view', targetType: 'family', targetId: familyId, ip: req.ip });
+    await audit(ctx.db, {
+      actorId: me(req).id,
+      familyId,
+      action: 'admin.family_view',
+      targetType: 'family',
+      targetId: familyId,
+      ip: req.ip,
+    });
     return { ...detail, trips: trips.rows, devices: devices.rows };
   });
 
@@ -139,7 +173,11 @@ export function adminRoutes(app: FastifyInstance, ctx: AppContext): void {
       `SELECT t.*, d.display_name, f.name AS family_name FROM trips t JOIN drivers d ON d.id = t.driver_id
        JOIN families f ON f.id = t.family_id WHERE t.ended_at IS NULL ORDER BY t.started_at`,
     );
-    return rows.map((r) => ({ ...liveView(r, r.display_name, ctx.env.OFFLINE_AFTER_SECONDS), familyId: r.family_id, familyName: r.family_name }));
+    return rows.map((r) => ({
+      ...liveView(r, r.display_name, ctx.env.OFFLINE_AFTER_SECONDS),
+      familyId: r.family_id,
+      familyName: r.family_name,
+    }));
   });
 
   app.get('/admin/health', admin, async () => systemHealth(app, ctx));
@@ -154,7 +192,11 @@ export function adminRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.get('/admin/audit', admin, async (req) => {
     const q = parse(
-      z.object({ action: z.string().max(60).default(''), familyId: z.string().uuid().optional(), limit: z.coerce.number().int().min(1).max(500).default(100) }),
+      z.object({
+        action: z.string().max(60).default(''),
+        familyId: z.string().uuid().optional(),
+        limit: z.coerce.number().int().min(1).max(500).default(100),
+      }),
       req.query,
     );
     const { rows } = await ctx.db.query(
@@ -169,13 +211,21 @@ export function adminRoutes(app: FastifyInstance, ctx: AppContext): void {
   });
 
   app.get('/admin/config', admin, async () => {
-    const { rows } = await ctx.db.query(`SELECT scope, key, value, updated_at AS "updatedAt" FROM app_config ORDER BY scope, key`);
+    const { rows } = await ctx.db.query(
+      `SELECT scope, key, value, updated_at AS "updatedAt" FROM app_config ORDER BY scope, key`,
+    );
     return rows;
   });
 
   /** Safety configuration per scope (global, country:IL, family:<id>). Validated before saving. */
   app.put('/admin/config/safety', admin, async (req) => {
-    const b = parse(z.object({ scope: z.string().regex(/^(global|country:[A-Z]{2}|family:[0-9a-f-]{36})$/), value: z.record(z.unknown()) }), req.body);
+    const b = parse(
+      z.object({
+        scope: z.string().regex(/^(global|country:[A-Z]{2}|family:[0-9a-f-]{36})$/),
+        value: z.record(z.unknown()),
+      }),
+      req.body,
+    );
     resolveSafetyConfig(b.value as never); // throws on invalid thresholds
     await ctx.db.query(
       `INSERT INTO app_config (scope, key, value, updated_by) VALUES ($1, 'safety', $2, $3)
@@ -183,7 +233,14 @@ export function adminRoutes(app: FastifyInstance, ctx: AppContext): void {
       [b.scope, b.value, me(req).id],
     );
     clearConfigCache();
-    await audit(ctx.db, { actorId: me(req).id, action: 'admin.config_change', targetType: 'config', targetId: `${b.scope}:safety`, ip: req.ip, details: b.value });
+    await audit(ctx.db, {
+      actorId: me(req).id,
+      action: 'admin.config_change',
+      targetType: 'config',
+      targetId: `${b.scope}:safety`,
+      ip: req.ip,
+      details: b.value,
+    });
     return { ok: true };
   });
 }

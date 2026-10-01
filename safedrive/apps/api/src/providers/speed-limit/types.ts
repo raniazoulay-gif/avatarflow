@@ -17,6 +17,11 @@ export interface SpeedLimitResult {
   highway?: string | null;
   country: string | null;
   region: string | null;
+  /**
+   * Polyline of the matched road segment, when the provider returns it (OSM). While the
+   * vehicle stays on it, the limit is reused without another provider call.
+   */
+  geometry?: Array<{ lat: number; lon: number }>;
 }
 
 export interface SpeedLimitProvider {

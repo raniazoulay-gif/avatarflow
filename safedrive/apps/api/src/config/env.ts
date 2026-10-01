@@ -1,8 +1,6 @@
 import { z } from 'zod';
 
-const bool = z
-  .enum(['true', 'false', '1', '0'])
-  .transform((v) => v === 'true' || v === '1');
+const bool = z.enum(['true', 'false', '1', '0']).transform((v) => v === 'true' || v === '1');
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'staging', 'production']).default('development'),
@@ -16,6 +14,7 @@ const schema = z.object({
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().default(30),
   CORS_ORIGINS: z.string().default('http://localhost:5173'),
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().default(300),
+  AUTH_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().default(10),
   TRUST_PROXY: bool.default('false'),
   DEMO_MODE_ENABLED: bool.default('true'),
   // Speed-limit providers (empty = disabled). See docs/PROVIDER_INTEGRATIONS.md
@@ -26,8 +25,8 @@ const schema = z.object({
   OVERPASS_MIN_INTERVAL_MS: z.coerce.number().int().default(1100),
   SPEED_LIMIT_CACHE_TTL_DAYS: z.coerce.number().int().default(30),
   SPEED_LIMIT_NEGATIVE_TTL_HOURS: z.coerce.number().int().default(24),
-  SPEED_LIMIT_LOOKUP_MIN_METERS: z.coerce.number().default(40),
-  SPEED_LIMIT_LOOKUP_MIN_SECONDS: z.coerce.number().default(15),
+  SPEED_LIMIT_LOOKUP_MIN_METERS: z.coerce.number().default(100),
+  SPEED_LIMIT_LOOKUP_MIN_SECONDS: z.coerce.number().default(30),
   PROVIDER_HTTP_TIMEOUT_MS: z.coerce.number().int().default(4000),
   // Push notifications
   PUSH_PROVIDER: z.enum(['log', 'expo', 'none']).default('log'),

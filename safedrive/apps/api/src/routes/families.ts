@@ -12,16 +12,34 @@ import { loadPreferences } from '../services/notifications.js';
 const id = z.object({ id: z.string().uuid() });
 const severities = z.enum(['ATTENTION', 'WARNING', 'CRITICAL']);
 const notificationTypes = z.enum([
-  'TRIP_STARTED', 'TRIP_ENDED', 'SPEEDING_ATTENTION', 'SPEEDING_WARNING', 'SPEEDING_CRITICAL', 'SPEEDING_ENDED',
-  'HARD_BRAKING', 'HARD_ACCELERATION', 'SOS', 'DRIVER_OFFLINE', 'GPS_UNAVAILABLE', 'PERMISSION_PROBLEM',
-  'MONITORING_REQUEST', 'MONITORING_RESPONSE', 'SYSTEM_ERROR',
+  'TRIP_STARTED',
+  'TRIP_ENDED',
+  'SPEEDING_ATTENTION',
+  'SPEEDING_WARNING',
+  'SPEEDING_CRITICAL',
+  'SPEEDING_ENDED',
+  'HARD_BRAKING',
+  'HARD_ACCELERATION',
+  'SOS',
+  'DRIVER_OFFLINE',
+  'GPS_UNAVAILABLE',
+  'PERMISSION_PROBLEM',
+  'MONITORING_REQUEST',
+  'MONITORING_RESPONSE',
+  'SYSTEM_ERROR',
 ]);
 
 export function familyRoutes(app: FastifyInstance, ctx: AppContext): void {
   const auth = { preHandler: app.requireAuth };
 
   app.post('/families', auth, async (req) => {
-    const b = parse(z.object({ name: z.string().trim().min(1).max(80), countryCode: z.string().length(2).optional() }), req.body);
+    const b = parse(
+      z.object({
+        name: z.string().trim().min(1).max(80),
+        countryCode: z.string().length(2).optional(),
+      }),
+      req.body,
+    );
     return ctx.families.create(me(req).id, b);
   });
 
@@ -37,14 +55,30 @@ export function familyRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.post('/families/:id/invites', auth, async (req) => {
     const { id: familyId } = parse(id, req.params);
     await requireParent(ctx.db, me(req).id, familyId);
-    const b = parse(z.object({ role: z.enum(['PARENT', 'DRIVER']), displayName: z.string().trim().min(1).max(80) }), req.body);
+    const b = parse(
+      z.object({
+        role: z.enum(['PARENT', 'DRIVER']),
+        displayName: z.string().trim().min(1).max(80),
+      }),
+      req.body,
+    );
     return ctx.families.createInvite(me(req).id, familyId, b.role, b.displayName);
   });
 
-  app.post('/invites/accept', { ...auth, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req) => {
-    const b = parse(z.object({ code: z.string().trim().min(6).max(20), consent: z.boolean().default(false) }), req.body);
-    return ctx.families.acceptInvite(me(req).id, b.code, b.consent);
-  });
+  app.post(
+    '/invites/accept',
+    {
+      ...auth,
+      config: { rateLimit: { max: ctx.env.AUTH_RATE_LIMIT_PER_MINUTE, timeWindow: '1 minute' } },
+    },
+    async (req) => {
+      const b = parse(
+        z.object({ code: z.string().trim().min(6).max(20), consent: z.boolean().default(false) }),
+        req.body,
+      );
+      return ctx.families.acceptInvite(me(req).id, b.code, b.consent);
+    },
+  );
 
   app.delete('/families/:id/members/:memberId', auth, async (req) => {
     const p = parse(z.object({ id: z.string().uuid(), memberId: z.string().uuid() }), req.params);
@@ -112,21 +146,37 @@ export function familyRoutes(app: FastifyInstance, ctx: AppContext): void {
     const { id: familyId } = parse(id, req.params);
     await requireParent(ctx.db, me(req).id, familyId);
     const b = parse(
-      z.object({ name: z.string().trim().min(1).max(80), phone: z.string().trim().regex(/^\+?[0-9 ()-]{3,20}$/), relation: z.string().trim().max(40).optional() }),
+      z.object({
+        name: z.string().trim().min(1).max(80),
+        phone: z
+          .string()
+          .trim()
+          .regex(/^\+?[0-9 ()-]{3,20}$/),
+        relation: z.string().trim().max(40).optional(),
+      }),
       req.body,
     );
     const r = await ctx.db.query(
       'INSERT INTO emergency_contacts (family_id, name, phone, relation, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, phone, relation',
       [familyId, b.name, b.phone, b.relation ?? null, me(req).id],
     );
-    await audit(ctx.db, { actorId: me(req).id, familyId, action: 'family.emergency_contact_add', targetType: 'emergency_contact', targetId: r.rows[0].id });
+    await audit(ctx.db, {
+      actorId: me(req).id,
+      familyId,
+      action: 'family.emergency_contact_add',
+      targetType: 'emergency_contact',
+      targetId: r.rows[0].id,
+    });
     return r.rows[0];
   });
 
   app.delete('/families/:id/emergency-contacts/:contactId', auth, async (req) => {
     const p = parse(z.object({ id: z.string().uuid(), contactId: z.string().uuid() }), req.params);
     await requireParent(ctx.db, me(req).id, p.id);
-    await ctx.db.query('UPDATE emergency_contacts SET deleted_at = now() WHERE id = $1 AND family_id = $2', [p.contactId, p.id]);
+    await ctx.db.query(
+      'UPDATE emergency_contacts SET deleted_at = now() WHERE id = $1 AND family_id = $2',
+      [p.contactId, p.id],
+    );
     return { ok: true };
   });
 
@@ -143,9 +193,16 @@ export function familyRoutes(app: FastifyInstance, ctx: AppContext): void {
     const b = parse(
       z.object({
         disabledTypes: z.array(notificationTypes).max(20).default([]),
-        minSpeedingSeverity: severities.default(DEFAULT_NOTIFICATION_PREFERENCES.minSpeedingSeverity),
+        minSpeedingSeverity: severities.default(
+          DEFAULT_NOTIFICATION_PREFERENCES.minSpeedingSeverity,
+        ),
         soundFromSeverity: severities.default(DEFAULT_NOTIFICATION_PREFERENCES.soundFromSeverity),
-        cooldownSeconds: z.number().int().min(0).max(3600).default(DEFAULT_NOTIFICATION_PREFERENCES.cooldownSeconds),
+        cooldownSeconds: z
+          .number()
+          .int()
+          .min(0)
+          .max(3600)
+          .default(DEFAULT_NOTIFICATION_PREFERENCES.cooldownSeconds),
       }),
       req.body,
     );

@@ -72,12 +72,14 @@ export function planTelemetry(
   cfg: TelemetryPolicyConfig = DEFAULT_TELEMETRY_POLICY,
 ): TelemetryPlan {
   const motion = classifyMotion(c.speedKmh, cfg);
-  let { sampleMs, distanceFilterM } = cfg.intervals[motion];
+  const { distanceFilterM } = cfg.intervals[motion];
+  let { sampleMs } = cfg.intervals[motion];
   if (c.accuracyM !== null && c.accuracyM > cfg.poorAccuracyM) {
     sampleMs = Math.min(sampleMs, cfg.poorAccuracySampleMs);
   }
   if (c.background) sampleMs = Math.round(sampleMs * cfg.backgroundFactor);
-  const lowBattery = !c.charging && c.batteryLevel !== null && c.batteryLevel <= cfg.lowBatteryLevel;
+  const lowBattery =
+    !c.charging && c.batteryLevel !== null && c.batteryLevel <= cfg.lowBatteryLevel;
   // Never thin out sampling while speeding: the 10-second rule needs the data.
   if (lowBattery && !c.speeding) sampleMs = Math.round(sampleMs * cfg.lowBatteryFactor);
   return {

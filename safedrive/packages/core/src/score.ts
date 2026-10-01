@@ -34,7 +34,10 @@ export function basePenalty(e: ScoredEvent, cfg: ScoreConfig): number {
   switch (e.kind) {
     case 'speeding': {
       const blocks = Math.floor(Math.max(0, e.durationSec) / cfg.speedingDurationBlockSeconds);
-      const duration = Math.min(cfg.speedingDurationPenaltyCap, blocks * cfg.speedingDurationPenaltyPerBlock);
+      const duration = Math.min(
+        cfg.speedingDurationPenaltyCap,
+        blocks * cfg.speedingDurationPenaltyPerBlock,
+      );
       return cfg.speedingPenalty[e.severity] + duration;
     }
     case 'hardBraking':
@@ -53,7 +56,12 @@ export function computeTripScore(events: readonly ScoredEvent[], cfg: ScoreConfi
     hardAcceleration: 0,
     phoneUsage: 0,
   };
-  const seen: Record<ScoreCategory, number> = { speeding: 0, hardBraking: 0, hardAcceleration: 0, phoneUsage: 0 };
+  const seen: Record<ScoreCategory, number> = {
+    speeding: 0,
+    hardBraking: 0,
+    hardAcceleration: 0,
+    phoneUsage: 0,
+  };
   for (const e of events) {
     const k = e.kind;
     const mult = Math.min(cfg.repeatMultiplierCap, cfg.repeatMultiplier ** seen[k]);
@@ -79,7 +87,10 @@ export interface TripScoreInput {
   distanceKm: number;
 }
 
-export function aggregateDriverScore(trips: readonly TripScoreInput[], minWeightKm = 1): number | null {
+export function aggregateDriverScore(
+  trips: readonly TripScoreInput[],
+  minWeightKm = 1,
+): number | null {
   if (trips.length === 0) return null;
   let wSum = 0;
   let sSum = 0;

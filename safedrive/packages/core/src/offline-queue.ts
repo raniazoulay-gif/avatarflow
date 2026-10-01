@@ -139,7 +139,10 @@ export class OutboundQueue<T> {
         res = await send(batch);
       } catch {
         this.snap.failures += 1;
-        const backoff = Math.min(this.opt.maxBackoffMs, this.opt.baseBackoffMs * 2 ** (this.snap.failures - 1));
+        const backoff = Math.min(
+          this.opt.maxBackoffMs,
+          this.opt.baseBackoffMs * 2 ** (this.snap.failures - 1),
+        );
         this.snap.nextAttemptAt = this.now() + backoff;
         await this.storage.save(this.snap);
         return acked;

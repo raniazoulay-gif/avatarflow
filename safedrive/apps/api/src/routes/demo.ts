@@ -22,7 +22,14 @@ export function demoRoutes(app: FastifyInstance, ctx: AppContext, demo: DemoServ
   app.post('/demo/families', auth, async (req) => demo.createDemoFamily(me(req).id));
 
   app.post('/demo/runs', auth, async (req) => {
-    const b = parse(z.object({ driverId: z.string().uuid(), scenarioId: z.string().max(40), speedFactor: z.number().min(1).max(20).default(1) }), req.body);
+    const b = parse(
+      z.object({
+        driverId: z.string().uuid(),
+        scenarioId: z.string().max(40),
+        speedFactor: z.number().min(1).max(20).default(1),
+      }),
+      req.body,
+    );
     return demo.start(me(req).id, b.driverId, b.scenarioId, b.speedFactor);
   });
 

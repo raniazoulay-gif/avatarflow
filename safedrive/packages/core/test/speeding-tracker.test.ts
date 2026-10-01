@@ -14,13 +14,23 @@ const limit = (kmh: number | null, confidence = 1) =>
   kmh === null ? null : { kmh, confidence, source: 'test', road: 'Route 1' };
 
 /** Feeds a 1 Hz speed profile; returns all outputs and the final state. */
-function run(profile: Array<[number, number | null]>, opts: { start?: number; state?: SpeedingState } = {}) {
+function run(
+  profile: Array<[number, number | null]>,
+  opts: { start?: number; state?: SpeedingState } = {},
+) {
   let state = opts.state ?? initialSpeedingState();
   const outputs: Array<SpeedingOutput & { at: number }> = [];
   let t = opts.start ?? 1_000_000;
   const lives = [];
   for (const [speed, lim] of profile) {
-    const s: SpeedSample = { t, speedKmh: speed, limit: limit(lim), lat: 32, lon: 34.8, accuracyM: 5 };
+    const s: SpeedSample = {
+      t,
+      speedKmh: speed,
+      limit: limit(lim),
+      lat: 32,
+      lon: 34.8,
+      accuracyM: 5,
+    };
     const r = processSpeedSample(state, s, cfg);
     state = r.state;
     lives.push(r.live);
@@ -30,8 +40,11 @@ function run(profile: Array<[number, number | null]>, opts: { start?: number; st
   return { state, outputs, lives, t };
 }
 
-const repeat = (n: number, speed: number, lim: number | null = 100): Array<[number, number | null]> =>
-  Array.from({ length: n }, () => [speed, lim]);
+const repeat = (
+  n: number,
+  speed: number,
+  lim: number | null = 100,
+): Array<[number, number | null]> => Array.from({ length: n }, () => [speed, lim]);
 
 describe('10-second confirmation rule', () => {
   it('does not create an event for 0-9 seconds over the limit', () => {
@@ -67,12 +80,7 @@ describe('10-second confirmation rule', () => {
 
 describe('severity escalation and aggregation', () => {
   it('escalates ATTENTION -> WARNING -> CRITICAL once each and closes with a summary', () => {
-    const r = run([
-      ...repeat(12, 115),
-      ...repeat(5, 135),
-      ...repeat(5, 155),
-      ...repeat(6, 90),
-    ]);
+    const r = run([...repeat(12, 115), ...repeat(5, 135), ...repeat(5, 155), ...repeat(6, 90)]);
     const types = r.outputs.map((o) => (o.type === 'escalated' ? `escalated:${o.to}` : o.type));
     expect(types).toEqual(['started', 'escalated:WARNING', 'escalated:CRITICAL', 'ended']);
     const end = r.outputs.at(-1)!;

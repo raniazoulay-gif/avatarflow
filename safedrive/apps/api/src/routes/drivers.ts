@@ -18,7 +18,10 @@ export function driverRoutes(app: FastifyInstance, ctx: AppContext): void {
        WHERE driver_id = $1 AND scope = 'trip' ORDER BY computed_at DESC LIMIT 1`,
       [driverId],
     );
-    const active = await ctx.db.query('SELECT id FROM trips WHERE driver_id = $1 AND ended_at IS NULL', [driverId]);
+    const active = await ctx.db.query(
+      'SELECT id FROM trips WHERE driver_id = $1 AND ended_at IS NULL',
+      [driverId],
+    );
     return {
       id: driver.id,
       familyId: driver.family_id,
@@ -33,7 +36,14 @@ export function driverRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get('/drivers/:id/trips', auth, async (req) => {
     const { id: driverId } = parse(id, req.params);
     await requireDriverAccess(ctx.db, me(req).id, driverId);
-    const q = parse(z.object({ limit: z.coerce.number().int().min(1).max(100).default(30), before: z.string().datetime().optional(), includeDemo: z.enum(['true', 'false']).default('true') }), req.query);
+    const q = parse(
+      z.object({
+        limit: z.coerce.number().int().min(1).max(100).default(30),
+        before: z.string().datetime().optional(),
+        includeDemo: z.enum(['true', 'false']).default('true'),
+      }),
+      req.query,
+    );
     const { rows } = await ctx.db.query(
       `SELECT id, state, is_demo AS "isDemo", started_at AS "startedAt", ended_at AS "endedAt",
               extract(epoch FROM (coalesce(ended_at, now()) - started_at))::int AS "durationSec",
@@ -50,12 +60,16 @@ export function driverRoutes(app: FastifyInstance, ctx: AppContext): void {
   });
 
   /** Parent asks the driver to start monitoring (never starts it silently). */
-  app.post('/drivers/:id/monitoring-requests', { ...auth, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req) => {
-    const { id: driverId } = parse(id, req.params);
-    const { driver } = await requireDriverAccess(ctx.db, me(req).id, driverId);
-    await requireParent(ctx.db, me(req).id, driver.family_id);
-    return ctx.monitoring.request(me(req).id, driverId, req.ip);
-  });
+  app.post(
+    '/drivers/:id/monitoring-requests',
+    { ...auth, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (req) => {
+      const { id: driverId } = parse(id, req.params);
+      const { driver } = await requireDriverAccess(ctx.db, me(req).id, driverId);
+      await requireParent(ctx.db, me(req).id, driver.family_id);
+      return ctx.monitoring.request(me(req).id, driverId, req.ip);
+    },
+  );
 
   app.get('/me/monitoring-requests', auth, async (req) => {
     const { rows } = await ctx.db.query(
@@ -71,7 +85,10 @@ export function driverRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   app.post('/monitoring-requests/:id/respond', auth, async (req) => {
     const { id: requestId } = parse(id, req.params);
-    const b = parse(z.object({ status: z.enum(['DECLINED', 'PERMISSION_REQUIRED', 'UNAVAILABLE', 'PENDING']) }), req.body);
+    const b = parse(
+      z.object({ status: z.enum(['DECLINED', 'PERMISSION_REQUIRED', 'UNAVAILABLE', 'PENDING']) }),
+      req.body,
+    );
     return ctx.monitoring.respond(me(req).id, requestId, b.status);
   });
 }

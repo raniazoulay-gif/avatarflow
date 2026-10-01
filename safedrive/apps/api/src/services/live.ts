@@ -48,7 +48,11 @@ export interface LiveSnapshot {
   confirming?: boolean;
 }
 
-export function connectionStatus(lastPointAt: Date | null, now: number, offlineAfterSec: number): LiveTripView['connection'] {
+export function connectionStatus(
+  lastPointAt: Date | null,
+  now: number,
+  offlineAfterSec: number,
+): LiveTripView['connection'] {
   if (!lastPointAt) return 'stale';
   const age = (now - lastPointAt.getTime()) / 1000;
   if (age <= 30) return 'online';
@@ -56,7 +60,12 @@ export function connectionStatus(lastPointAt: Date | null, now: number, offlineA
   return 'offline';
 }
 
-export function liveView(trip: TripRow, driverName: string, offlineAfterSec: number, now = Date.now()): LiveTripView {
+export function liveView(
+  trip: TripRow,
+  driverName: string,
+  offlineAfterSec: number,
+  now = Date.now(),
+): LiveTripView {
   const l = trip.live ?? {};
   return {
     tripId: trip.id,
@@ -66,7 +75,10 @@ export function liveView(trip: TripRow, driverName: string, offlineAfterSec: num
     state: trip.state,
     startedAt: trip.started_at.toISOString(),
     lastUpdateAt: trip.last_point_at ? trip.last_point_at.toISOString() : null,
-    location: l.lat !== undefined && l.lon !== undefined ? { lat: l.lat, lon: l.lon, accuracyM: l.accuracyM ?? null } : null,
+    location:
+      l.lat !== undefined && l.lon !== undefined
+        ? { lat: l.lat, lon: l.lon, accuracyM: l.accuracyM ?? null }
+        : null,
     speedKmh: l.speedKmh ?? null,
     limitKmh: l.limitKmh ?? null,
     limitSource: l.limitSource ?? null,
@@ -76,11 +88,16 @@ export function liveView(trip: TripRow, driverName: string, offlineAfterSec: num
     speedingSeconds: l.speedingSeconds ?? null,
     confirming: l.confirming ?? false,
     score: trip.score,
-    connection: trip.ended_at ? 'offline' : connectionStatus(trip.last_point_at, now, offlineAfterSec),
+    connection: trip.ended_at
+      ? 'offline'
+      : connectionStatus(trip.last_point_at, now, offlineAfterSec),
   };
 }
 
 export async function driverName(db: Queryable, driverId: string): Promise<string> {
-  const r = await db.query<{ display_name: string }>('SELECT display_name FROM drivers WHERE id = $1', [driverId]);
+  const r = await db.query<{ display_name: string }>(
+    'SELECT display_name FROM drivers WHERE id = $1',
+    [driverId],
+  );
   return r.rows[0]?.display_name ?? '';
 }

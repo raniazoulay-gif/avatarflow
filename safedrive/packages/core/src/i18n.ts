@@ -123,7 +123,7 @@ function plural(template: string, lang: string, vars: Record<string, string | nu
 }
 
 export function t(lang: string, key: string, vars: Record<string, string | number> = {}): string {
-  const dict = MESSAGES[(lang as Lang)] ?? MESSAGES.he;
+  const dict = MESSAGES[lang as Lang] ?? MESSAGES.he;
   const raw = dict[key] ?? MESSAGES.en[key] ?? key;
   const withPlural = plural(raw, lang, vars);
   return withPlural.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m));

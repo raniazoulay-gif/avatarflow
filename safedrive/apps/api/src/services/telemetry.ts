@@ -37,18 +37,37 @@ import { type Metrics } from './metrics.js';
 import { type NotificationService } from './notifications.js';
 import { scoreTrip } from './scoring.js';
 import { type SpeedLimitService } from './speed-limits.js';
+import { distanceToPolyline } from '../providers/speed-limit/osm.js';
 
 export const MAX_BATCH = 500;
 
 export interface EngineState {
   speeding: SpeedingState;
   motion: MotionState;
-  lastFix: { t: number; lat: number; lon: number; speedKmh: number | null; accuracyM: number | null } | null;
-  lastLookup: { t: number; lat: number; lon: number; limit: SpeedLimitInfo | null } | null;
+  lastFix: {
+    t: number;
+    lat: number;
+    lon: number;
+    speedKmh: number | null;
+    accuracyM: number | null;
+  } | null;
+  lastLookup: {
+    t: number;
+    lat: number;
+    lon: number;
+    limit: SpeedLimitInfo | null;
+    /** Road geometry of the last answer (OSM): reused while the vehicle stays on it. */
+    geometry?: Array<{ lat: number; lon: number }> | null;
+  } | null;
 }
 
 export function initialEngineState(): EngineState {
-  return { speeding: initialSpeedingState(), motion: initialMotionState(), lastFix: null, lastLookup: null };
+  return {
+    speeding: initialSpeedingState(),
+    motion: initialMotionState(),
+    lastFix: null,
+    lastLookup: null,
+  };
 }
 
 /** Point as accepted from devices (simulatedLimitKmh only honoured on demo trips). */
@@ -83,7 +102,10 @@ export function normalizePoints(points: IncomingPoint[], now = Date.now()): Norm
     if (t > now + 5 * 60_000) throw badRequest('recordedAt is in the future');
     if (!isValidCoordinate({ lat: p.lat, lon: p.lon })) throw badRequest('Invalid coordinates');
     const speedMs = p.speedMs ?? null;
-    const speedKmh = speedMs !== null && Number.isFinite(speedMs) && speedMs >= 0 && speedMs < 120 ? msToKmh(speedMs) : null;
+    const speedKmh =
+      speedMs !== null && Number.isFinite(speedMs) && speedMs >= 0 && speedMs < 120
+        ? msToKmh(speedMs)
+        : null;
     bySeq.set(p.seq, {
       id: p.id,
       seq: p.seq,
@@ -92,8 +114,12 @@ export function normalizePoints(points: IncomingPoint[], now = Date.now()): Norm
       lon: p.lon,
       altitudeM: p.altitudeM ?? null,
       speedKmh,
-      headingDeg: p.headingDeg !== null && p.headingDeg !== undefined && p.headingDeg >= 0 ? p.headingDeg % 360 : null,
-      accuracyM: p.accuracyM !== null && p.accuracyM !== undefined && p.accuracyM >= 0 ? p.accuracyM : null,
+      headingDeg:
+        p.headingDeg !== null && p.headingDeg !== undefined && p.headingDeg >= 0
+          ? p.headingDeg % 360
+          : null,
+      accuracyM:
+        p.accuracyM !== null && p.accuracyM !== undefined && p.accuracyM >= 0 ? p.accuracyM : null,
       source: p.source === 'simulated' ? 'simulated' : 'gps',
       simulatedLimitKmh: p.simulatedLimitKmh ?? null,
     });
@@ -119,6 +145,10 @@ interface Deps {
 }
 
 const GOOD_ACCURACY_M = 50;
+/** A fix within this distance of the last matched road geometry is considered on that road. */
+const ON_ROAD_METERS = 15;
+/** Even on the same road, re-validate the limit this often (signs can change mid-way). */
+const SAME_ROAD_REFRESH_SECONDS = 120;
 
 export class TelemetryService {
   constructor(private readonly d: Deps) {}
@@ -134,7 +164,10 @@ export class TelemetryService {
     const trip0 = head.rows[0];
     if (!trip0 || trip0.user_id !== userId) throw badRequest('Unknown trip');
     if (points.length === 0) return { accepted: [], duplicates: [], live: null };
-    if (!trip0.is_demo && points.some((p) => p.source === 'simulated' || p.simulatedLimitKmh !== null)) {
+    if (
+      !trip0.is_demo &&
+      points.some((p) => p.source === 'simulated' || p.simulatedLimitKmh !== null)
+    ) {
       // Never mix simulated data into a real trip.
       throw badRequest('Simulated points are only accepted on demo trips');
     }
@@ -142,14 +175,21 @@ export class TelemetryService {
     const limits = await this.resolveLimits(trip0, points);
 
     const outcome = await withTx(this.d.db, async (c) => {
-      const locked = await c.query<TripRow>('SELECT * FROM trips WHERE id = $1 FOR UPDATE', [tripId]);
+      const locked = await c.query<TripRow>('SELECT * FROM trips WHERE id = $1 FOR UPDATE', [
+        tripId,
+      ]);
       const trip = locked.rows[0] as TripRow;
       const inserted = await this.insertPoints(c, trip, points, limits);
       const fresh = points.filter((p) => inserted.has(p.seq) && p.seq > trip.last_seq);
       if (!trip.ended_at && isLive(trip.state) && fresh.length > 0) {
         return { ...(await this.process(c, trip, fresh, limits, cfg)), inserted };
       }
-      return { trip, outputs: [] as Array<{ out: SpeedingOutput; eventId: string }>, motion: [] as string[], inserted };
+      return {
+        trip,
+        outputs: [] as Array<{ out: SpeedingOutput; eventId: string }>,
+        motion: [] as string[],
+        inserted,
+      };
     });
 
     const accepted = points.filter((p) => outcome.inserted.has(p.seq)).map((p) => p.id);
@@ -158,7 +198,10 @@ export class TelemetryService {
     this.d.metrics.inc('telemetry_points_duplicate', duplicates.length);
     const name = await driverName(this.d.db, outcome.trip.driver_id);
     const live = liveView(outcome.trip, name, this.d.offlineAfterSec);
-    await this.d.bus.publish(familyChannel(outcome.trip.family_id), { type: 'trip.update', data: live });
+    await this.d.bus.publish(familyChannel(outcome.trip.family_id), {
+      type: 'trip.update',
+      data: live,
+    });
     await this.notifyOutputs(outcome.trip, name, outcome.outputs);
     for (const kind of outcome.motion) {
       await this.d.notifications.notifyParents({
@@ -178,37 +221,68 @@ export class TelemetryService {
   }
 
   /** Decides which points need a lookup (moved enough / time passed) and resolves them. */
-  private async resolveLimits(trip: TripRow & { country_code: string }, points: NormalPoint[]): Promise<Map<number, SpeedLimitInfo | null>> {
+  private async resolveLimits(
+    trip: TripRow & { country_code: string },
+    points: NormalPoint[],
+  ): Promise<Map<number, SpeedLimitInfo | null>> {
     const out = new Map<number, SpeedLimitInfo | null>();
     if (trip.is_demo) {
       for (const p of points) {
-        out.set(p.seq, p.simulatedLimitKmh ? { kmh: p.simulatedLimitKmh, confidence: 1, source: 'demo-simulated', road: null } : null);
+        out.set(
+          p.seq,
+          p.simulatedLimitKmh
+            ? { kmh: p.simulatedLimitKmh, confidence: 1, source: 'demo-simulated', road: null }
+            : null,
+        );
       }
       return out;
     }
     const state = (trip.engine_state as Partial<EngineState>) ?? {};
     let last = state.lastLookup ?? null;
+    this.lastLookups.set(trip.id, last);
     for (const p of points) {
       if (p.accuracyM !== null && p.accuracyM > GOOD_ACCURACY_M) {
         out.set(p.seq, last?.limit ?? null);
         continue;
       }
+      const onSameRoad =
+        !!last?.geometry &&
+        last.geometry.length > 1 &&
+        distanceToPolyline(p, last.geometry) <= ON_ROAD_METERS;
       const due =
         !last ||
-        distanceMeters(last, p) >= this.d.lookupMinMeters ||
-        (p.t - last.t) / 1000 >= this.d.lookupMinSeconds;
-      if (due) {
-        const r = await this.d.speedLimits.resolve({ lat: p.lat, lon: p.lon, headingDeg: p.headingDeg, countryCode: trip.country_code });
+        (!onSameRoad &&
+          (distanceMeters(last, p) >= this.d.lookupMinMeters ||
+            (p.t - last.t) / 1000 >= this.d.lookupMinSeconds)) ||
+        (onSameRoad && (p.t - last.t) / 1000 >= SAME_ROAD_REFRESH_SECONDS);
+      if (due || (last?.geometry && !onSameRoad)) {
+        const r = await this.d.speedLimits.resolve({
+          lat: p.lat,
+          lon: p.lon,
+          headingDeg: p.headingDeg,
+          countryCode: trip.country_code,
+        });
         const info: SpeedLimitInfo | null =
-          r && r.limitKmh !== null ? { kmh: r.limitKmh, confidence: r.confidence, source: r.source, road: r.roadName } : null;
-        last = { t: p.t, lat: p.lat, lon: p.lon, limit: info };
+          r && r.limitKmh !== null
+            ? { kmh: r.limitKmh, confidence: r.confidence, source: r.source, road: r.roadName }
+            : null;
+        last = { t: p.t, lat: p.lat, lon: p.lon, limit: info, geometry: r?.geometry ?? null };
       }
       out.set(p.seq, last?.limit ?? null);
     }
+    this.lastLookups.set(trip.id, last);
     return out;
   }
 
-  private async insertPoints(c: DbClient, trip: TripRow, points: NormalPoint[], limits: Map<number, SpeedLimitInfo | null>): Promise<Set<number>> {
+  /** Lookup bookkeeping computed before the row lock, persisted with the batch. */
+  private readonly lastLookups = new Map<string, EngineState['lastLookup']>();
+
+  private async insertPoints(
+    c: DbClient,
+    trip: TripRow,
+    points: NormalPoint[],
+    limits: Map<number, SpeedLimitInfo | null>,
+  ): Promise<Set<number>> {
     const cols = 14;
     const values: unknown[] = [];
     const rows: string[] = [];
@@ -217,8 +291,20 @@ export class TelemetryService {
       const b = i * cols;
       rows.push(`(${Array.from({ length: cols }, (_, k) => `$${b + k + 1}`).join(',')})`);
       values.push(
-        trip.id, p.seq, new Date(p.t), p.id, p.lat, p.lon, p.altitudeM, p.speedKmh, p.headingDeg, p.accuracyM,
-        p.source, l?.kmh ?? null, l?.source ?? null, l?.confidence ?? null,
+        trip.id,
+        p.seq,
+        new Date(p.t),
+        p.id,
+        p.lat,
+        p.lon,
+        p.altitudeM,
+        p.speedKmh,
+        p.headingDeg,
+        p.accuracyM,
+        p.source,
+        l?.kmh ?? null,
+        l?.source ?? null,
+        l?.confidence ?? null,
       );
     });
     const r = await c.query<{ seq: number }>(
@@ -236,8 +322,15 @@ export class TelemetryService {
     points: NormalPoint[],
     limits: Map<number, SpeedLimitInfo | null>,
     cfg: SafetyConfig,
-  ): Promise<{ trip: TripRow; outputs: Array<{ out: SpeedingOutput; eventId: string }>; motion: string[] }> {
-    const es: EngineState = { ...initialEngineState(), ...(trip.engine_state as Partial<EngineState>) };
+  ): Promise<{
+    trip: TripRow;
+    outputs: Array<{ out: SpeedingOutput; eventId: string }>;
+    motion: string[];
+  }> {
+    const es: EngineState = {
+      ...initialEngineState(),
+      ...(trip.engine_state as Partial<EngineState>),
+    };
     let distance = trip.distance_m;
     let moving = trip.moving_seconds;
     let maxSpeed = trip.max_speed_kmh;
@@ -269,10 +362,10 @@ export class TelemetryService {
         startLat = p.lat;
         startLon = p.lon;
       }
-      if (speed !== null && (p.accuracyM ?? 0) <= GOOD_ACCURACY_M && speed > maxSpeed) maxSpeed = speed;
+      if (speed !== null && (p.accuracyM ?? 0) <= GOOD_ACCURACY_M && speed > maxSpeed)
+        maxSpeed = speed;
       es.lastFix = { t: p.t, lat: p.lat, lon: p.lon, speedKmh: speed, accuracyM: p.accuracyM };
       const limit = limits.get(p.seq) ?? null;
-      es.lastLookup = trip.is_demo ? es.lastLookup : { t: p.t, lat: p.lat, lon: p.lon, limit };
 
       const step = processSpeedSample(
         es.speeding,
@@ -280,7 +373,8 @@ export class TelemetryService {
         cfg.speeding,
       );
       es.speeding = step.state;
-      for (const o of step.outputs) outputs.push({ out: o, eventId: await this.persistSpeeding(c, trip, o) });
+      for (const o of step.outputs)
+        outputs.push({ out: o, eventId: await this.persistSpeeding(c, trip, o) });
       lastStatus = step.live.status;
       live = {
         lat: p.lat,
@@ -297,20 +391,40 @@ export class TelemetryService {
         confirming: step.live.confirming,
       };
 
-      const m = processMotionSample(es.motion, { t: p.t, speedKmh: speed, accuracyM: p.accuracyM, lat: p.lat, lon: p.lon }, cfg.motion);
+      const m = processMotionSample(
+        es.motion,
+        { t: p.t, speedKmh: speed, accuracyM: p.accuracyM, lat: p.lat, lon: p.lon },
+        cfg.motion,
+      );
       es.motion = m.state;
       for (const ev of m.events) {
         await c.query(
           `INSERT INTO safety_events (family_id, driver_id, trip_id, type, severity, occurred_at, lat, lon, data, is_demo, dedupe_key)
            VALUES ($1, $2, $3, $4, 'ATTENTION', $5, $6, $7, $8, $9, $10) ON CONFLICT DO NOTHING`,
-          [trip.family_id, trip.driver_id, trip.id, ev.type, new Date(ev.t), ev.location.lat, ev.location.lon,
-            { accelerationMs2: ev.accelerationMs2, fromSpeedKmh: Math.round(ev.fromSpeedKmh), toSpeedKmh: Math.round(ev.toSpeedKmh) },
-            trip.is_demo, `${ev.type}:${ev.t}`],
+          [
+            trip.family_id,
+            trip.driver_id,
+            trip.id,
+            ev.type,
+            new Date(ev.t),
+            ev.location.lat,
+            ev.location.lon,
+            {
+              accelerationMs2: ev.accelerationMs2,
+              fromSpeedKmh: Math.round(ev.fromSpeedKmh),
+              toSpeedKmh: Math.round(ev.toSpeedKmh),
+            },
+            trip.is_demo,
+            `${ev.type}:${ev.t}`,
+          ],
         );
         motionKinds.push(ev.type);
       }
     }
 
+    if (!trip.is_demo && this.lastLookups.has(trip.id))
+      es.lastLookup = this.lastLookups.get(trip.id) ?? null;
+    this.lastLookups.delete(trip.id);
     const state = nextState(trip.state, lastStatus, trip.started_by === 'remote_request');
     const lastPoint = points[points.length - 1] as NormalPoint;
     const score = await scoreTrip(c, trip.id, cfg);
@@ -321,9 +435,23 @@ export class TelemetryService {
          start_lat = $16, start_lon = $17, offline_notified_at = NULL, updated_at = now()
        WHERE id = $1 RETURNING *`,
       [
-        trip.id, es, live, lastPoint.seq, new Date(lastPoint.t), distance, moving, maxSpeed, state, score.score,
-        score.breakdown, score.counts.speeding, score.counts.critical, score.counts.hardBraking, score.counts.hardAcceleration,
-        startLat, startLon,
+        trip.id,
+        es,
+        live,
+        lastPoint.seq,
+        new Date(lastPoint.t),
+        distance,
+        moving,
+        maxSpeed,
+        state,
+        score.score,
+        score.breakdown,
+        score.counts.speeding,
+        score.counts.critical,
+        score.counts.hardBraking,
+        score.counts.hardAcceleration,
+        startLat,
+        startLon,
       ],
     );
     return { trip: updated.rows[0] as TripRow, outputs, motion: motionKinds };
@@ -336,20 +464,48 @@ export class TelemetryService {
       const se = await c.query<{ id: string }>(
         `INSERT INTO safety_events (family_id, driver_id, trip_id, type, severity, occurred_at, lat, lon, data, is_demo, dedupe_key)
          VALUES ($1, $2, $3, 'SPEEDING', $4, $5, $6, $7, '{}', $8, $9) RETURNING id`,
-        [trip.family_id, trip.driver_id, trip.id, e.severity, new Date(e.startTime), e.startLocation.lat, e.startLocation.lon,
-          trip.is_demo, `SPEEDING:${e.startTime}`],
+        [
+          trip.family_id,
+          trip.driver_id,
+          trip.id,
+          e.severity,
+          new Date(e.startTime),
+          e.startLocation.lat,
+          e.startLocation.lon,
+          trip.is_demo,
+          `SPEEDING:${e.startTime}`,
+        ],
       );
       const id = (se.rows[0] as { id: string }).id;
       await c.query(
         `INSERT INTO speeding_events (id, trip_id, status, start_time, duration_s, start_speed_kmh, max_speed_kmh, speed_limit_kmh,
            max_excess_kmh, max_excess_pct, severity, start_lat, start_lon, max_lat, max_lon, road, limit_source)
          VALUES ($1, $2, 'OPEN', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-        [id, trip.id, new Date(e.startTime), e.durationSec, e.startSpeedKmh, e.maxSpeedKmh, e.speedLimitKmh, e.maxExcessKmh,
-          e.maxExcessPct, e.severity, e.startLocation.lat, e.startLocation.lon, e.maxLocation.lat, e.maxLocation.lon, e.road, e.limitSource],
+        [
+          id,
+          trip.id,
+          new Date(e.startTime),
+          e.durationSec,
+          e.startSpeedKmh,
+          e.maxSpeedKmh,
+          e.speedLimitKmh,
+          e.maxExcessKmh,
+          e.maxExcessPct,
+          e.severity,
+          e.startLocation.lat,
+          e.startLocation.lon,
+          e.maxLocation.lat,
+          e.maxLocation.lon,
+          e.road,
+          e.limitSource,
+        ],
       );
       return id;
     }
-    const open = await c.query<{ id: string }>(`SELECT id FROM speeding_events WHERE trip_id = $1 AND status = 'OPEN'`, [trip.id]);
+    const open = await c.query<{ id: string }>(
+      `SELECT id FROM speeding_events WHERE trip_id = $1 AND status = 'OPEN'`,
+      [trip.id],
+    );
     const id = open.rows[0]?.id;
     if (!id) throw conflict('No open speeding event to update');
     await c.query(
@@ -359,27 +515,56 @@ export class TelemetryService {
          end_time = CASE WHEN $10 THEN $11::timestamptz ELSE end_time END,
          end_reason = CASE WHEN $10 THEN $12 ELSE end_reason END
        WHERE id = $1`,
-      [id, e.durationSec, e.maxSpeedKmh, e.speedLimitKmh, e.maxExcessKmh, e.maxExcessPct, e.severity,
-        e.maxLocation.lat, e.maxLocation.lon, o.type === 'ended', e.endTime ? new Date(e.endTime) : null,
-        o.type === 'ended' ? o.reason : null],
+      [
+        id,
+        e.durationSec,
+        e.maxSpeedKmh,
+        e.speedLimitKmh,
+        e.maxExcessKmh,
+        e.maxExcessPct,
+        e.severity,
+        e.maxLocation.lat,
+        e.maxLocation.lon,
+        o.type === 'ended',
+        e.endTime ? new Date(e.endTime) : null,
+        o.type === 'ended' ? o.reason : null,
+      ],
     );
     await c.query(
       `UPDATE safety_events SET severity = $2, ended_at = $3,
          data = jsonb_build_object('maxSpeedKmh', $4::float8, 'speedLimitKmh', $5::float8, 'maxExcessKmh', $6::float8,
                                    'maxExcessPct', $7::float8, 'durationSec', $8::int)
        WHERE id = $1`,
-      [id, e.severity, o.type === 'ended' && e.endTime ? new Date(e.endTime) : null, e.maxSpeedKmh, e.speedLimitKmh,
-        e.maxExcessKmh, e.maxExcessPct, e.durationSec],
+      [
+        id,
+        e.severity,
+        o.type === 'ended' && e.endTime ? new Date(e.endTime) : null,
+        e.maxSpeedKmh,
+        e.speedLimitKmh,
+        e.maxExcessKmh,
+        e.maxExcessPct,
+        e.durationSec,
+      ],
     );
     return id;
   }
 
-  async notifyOutputs(trip: TripRow, name: string, outputs: Array<{ out: SpeedingOutput; eventId: string }>): Promise<void> {
+  async notifyOutputs(
+    trip: TripRow,
+    name: string,
+    outputs: Array<{ out: SpeedingOutput; eventId: string }>,
+  ): Promise<void> {
     for (const { out, eventId } of outputs) {
       const e = out.event;
-      const base = { familyId: trip.family_id, driverId: trip.driver_id, tripId: trip.id, isDemo: trip.is_demo };
+      const base = {
+        familyId: trip.family_id,
+        driverId: trip.driver_id,
+        tripId: trip.id,
+        isDemo: trip.is_demo,
+      };
       if (out.type === 'started' || out.type === 'escalated') {
-        const sev = (out.type === 'started' ? e.severity : out.to) as 'ATTENTION' | 'WARNING' | 'CRITICAL';
+        const sev = (out.type === 'started' ? e.severity : out.to) as
+          'ATTENTION' | 'WARNING' | 'CRITICAL';
         await this.d.notifications.notifyParents({
           ...base,
           type: `SPEEDING_${sev}`,
@@ -387,8 +572,19 @@ export class TelemetryService {
           dedupeKey: `${trip.id}:speeding:${eventId}:${sev}`,
           titleKey: 'event.speeding',
           bodyKey: 'notify.speeding',
-          vars: { name, severity: sev, speed: Math.round(e.maxSpeedKmh), limit: Math.round(e.speedLimitKmh) },
-          data: { eventId, severity: sev, maxSpeedKmh: e.maxSpeedKmh, speedLimitKmh: e.speedLimitKmh, maxExcessPct: Math.round(e.maxExcessPct) },
+          vars: {
+            name,
+            severity: sev,
+            speed: Math.round(e.maxSpeedKmh),
+            limit: Math.round(e.speedLimitKmh),
+          },
+          data: {
+            eventId,
+            severity: sev,
+            maxSpeedKmh: e.maxSpeedKmh,
+            speedLimitKmh: e.speedLimitKmh,
+            maxExcessPct: Math.round(e.maxExcessPct),
+          },
         });
         await this.d.bus.publish(familyChannel(trip.family_id), {
           type: out.type === 'started' ? 'speeding.started' : 'speeding.escalated',
@@ -403,11 +599,22 @@ export class TelemetryService {
           titleKey: 'event.speeding',
           bodyKey: 'notify.speedingEnded',
           vars: { name, duration: formatDuration(e.durationSec) },
-          data: { eventId, durationSec: e.durationSec, maxSpeedKmh: e.maxSpeedKmh, severity: e.severity },
+          data: {
+            eventId,
+            durationSec: e.durationSec,
+            maxSpeedKmh: e.maxSpeedKmh,
+            severity: e.severity,
+          },
         });
         await this.d.bus.publish(familyChannel(trip.family_id), {
           type: 'speeding.ended',
-          data: { tripId: trip.id, driverId: trip.driver_id, eventId, reason: out.reason, event: e },
+          data: {
+            tripId: trip.id,
+            driverId: trip.driver_id,
+            eventId,
+            reason: out.reason,
+            event: e,
+          },
         });
       }
     }

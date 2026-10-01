@@ -5,7 +5,11 @@
  * simulated point. Usage per provider is accounted for cost monitoring.
  */
 import { type Db } from '../db/pool.js';
-import { type SpeedLimitProvider, type SpeedLimitQuery, type SpeedLimitResult } from '../providers/speed-limit/types.js';
+import {
+  type SpeedLimitProvider,
+  type SpeedLimitQuery,
+  type SpeedLimitResult,
+} from '../providers/speed-limit/types.js';
 import { type Metrics } from './metrics.js';
 
 const CELL_DEG = 0.0003; // ~33 m north-south
@@ -13,7 +17,8 @@ const CELL_DEG = 0.0003; // ~33 m north-south
 export function cellKey(q: SpeedLimitQuery): string {
   const la = Math.round(q.lat / CELL_DEG);
   const lo = Math.round(q.lon / CELL_DEG);
-  const h = q.headingDeg === null ? 'x' : String(Math.round(((q.headingDeg % 360) + 360) % 360 / 45) % 8);
+  const h =
+    q.headingDeg === null ? 'x' : String(Math.round((((q.headingDeg % 360) + 360) % 360) / 45) % 8);
   return `${la}:${lo}:${h}`;
 }
 
@@ -36,14 +41,22 @@ interface CacheEntry {
 export class SpeedLimitService {
   private readonly memory = new Map<string, CacheEntry>();
   private readonly health = new Map<string, ProviderHealth>();
-  private usage = new Map<string, { calls: number; errors: number; cacheHits: number; totalMs: number }>();
+  private usage = new Map<
+    string,
+    { calls: number; errors: number; cacheHits: number; totalMs: number }
+  >();
   private flushTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly db: Db,
     private readonly providers: SpeedLimitProvider[],
     private readonly metrics: Metrics,
-    private readonly opts: { positiveTtlMs: number; negativeTtlMs: number; errorTtlMs: number; memoryMax: number },
+    private readonly opts: {
+      positiveTtlMs: number;
+      negativeTtlMs: number;
+      errorTtlMs: number;
+      memoryMax: number;
+    },
   ) {
     for (const p of providers) {
       this.health.set(p.id, {
@@ -119,13 +132,24 @@ export class SpeedLimitService {
       country: string | null;
       region: string | null;
       expires_at: Date;
-    }>('SELECT provider, limit_kmh, confidence, road_name, country, region, expires_at FROM speed_limits WHERE cell_key = $1 AND expires_at > now()', [key]);
+    }>(
+      'SELECT provider, limit_kmh, confidence, road_name, country, region, expires_at FROM speed_limits WHERE cell_key = $1 AND expires_at > now()',
+      [key],
+    );
     const row = cached.rows[0];
     if (row) {
       const r: SpeedLimitResult | null =
         row.limit_kmh === null
           ? null
-          : { limitKmh: row.limit_kmh, confidence: row.confidence, source: row.provider, roadName: row.road_name, externalId: null, country: row.country, region: row.region };
+          : {
+              limitKmh: row.limit_kmh,
+              confidence: row.confidence,
+              source: row.provider,
+              roadName: row.road_name,
+              externalId: null,
+              country: row.country,
+              region: row.region,
+            };
       this.remember(key, r, Math.max(1000, row.expires_at.getTime() - Date.now()));
       this.bump('cache', 'cacheHits');
       this.metrics.inc('speed_limit_cache_hit');
@@ -187,7 +211,17 @@ export class SpeedLimitService {
        ON CONFLICT (cell_key) DO UPDATE SET provider = EXCLUDED.provider, limit_kmh = EXCLUDED.limit_kmh,
          confidence = EXCLUDED.confidence, road_segment_id = EXCLUDED.road_segment_id, road_name = EXCLUDED.road_name,
          fetched_at = now(), expires_at = EXCLUDED.expires_at`,
-      [key, r?.source ?? 'none', r?.limitKmh ?? null, r?.confidence ?? 0, segmentId, r?.roadName ?? null, r?.country ?? null, r?.region ?? null, String(ttlMs)],
+      [
+        key,
+        r?.source ?? 'none',
+        r?.limitKmh ?? null,
+        r?.confidence ?? 0,
+        segmentId,
+        r?.roadName ?? null,
+        r?.country ?? null,
+        r?.region ?? null,
+        String(ttlMs),
+      ],
     );
   }
 }

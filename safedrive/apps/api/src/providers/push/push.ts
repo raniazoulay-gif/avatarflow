@@ -66,17 +66,20 @@ export class ExpoPushProvider implements PushNotificationProvider {
         interruptionLevel: m.priority === 'critical' ? 'time-sensitive' : 'active',
       }));
       try {
-        const res = await fetchJson<{ data?: ExpoTicket[] }>('https://exp.host/--/api/v2/push/send', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-            ...(this.accessToken ? { Authorization: `Bearer ${this.accessToken}` } : {}),
+        const res = await fetchJson<{ data?: ExpoTicket[] }>(
+          'https://exp.host/--/api/v2/push/send',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+              ...(this.accessToken ? { Authorization: `Bearer ${this.accessToken}` } : {}),
+            },
+            body: JSON.stringify(body),
+            timeoutMs: this.timeoutMs,
+            fetchFn: this.fetchFn,
           },
-          body: JSON.stringify(body),
-          timeoutMs: this.timeoutMs,
-          fetchFn: this.fetchFn,
-        });
+        );
         const tickets = res.data ?? [];
         chunk.forEach((_m, k) => {
           const t = tickets[k];

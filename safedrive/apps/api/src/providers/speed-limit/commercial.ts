@@ -7,7 +7,12 @@
 import { fetchJson, type FetchFn } from '../../lib/http.js';
 import { type SpeedLimitProvider, type SpeedLimitQuery, type SpeedLimitResult } from './types.js';
 
-function pointAhead(lat: number, lon: number, headingDeg: number | null, meters: number): { lat: number; lon: number } {
+function pointAhead(
+  lat: number,
+  lon: number,
+  headingDeg: number | null,
+  meters: number,
+): { lat: number; lon: number } {
   const h = ((headingDeg ?? 0) * Math.PI) / 180;
   const dLat = (meters * Math.cos(h)) / 111_320;
   const dLon = (meters * Math.sin(h)) / (111_320 * Math.cos((lat * Math.PI) / 180));
@@ -64,7 +69,14 @@ export class HereSpeedLimitProvider implements SpeedLimitProvider {
 }
 
 interface TomTomResponse {
-  addresses?: { address?: { speedLimit?: string; street?: string; routeNumbers?: string[]; countrySubdivision?: string } }[];
+  addresses?: {
+    address?: {
+      speedLimit?: string;
+      street?: string;
+      routeNumbers?: string[];
+      countrySubdivision?: string;
+    };
+  }[];
 }
 
 export function parseTomTomSpeed(v: string | undefined): number | null {
@@ -89,7 +101,11 @@ export class TomTomSpeedLimitProvider implements SpeedLimitProvider {
 
   async lookup(q: SpeedLimitQuery): Promise<SpeedLimitResult | null> {
     if (!this.apiKey) return null;
-    const params = new URLSearchParams({ key: this.apiKey, returnSpeedLimit: 'true', radius: '30' });
+    const params = new URLSearchParams({
+      key: this.apiKey,
+      returnSpeedLimit: 'true',
+      radius: '30',
+    });
     if (q.headingDeg !== null) params.set('heading', String(Math.round(q.headingDeg)));
     const r = await fetchJson<TomTomResponse>(
       `https://api.tomtom.com/search/2/reverseGeocode/${q.lat},${q.lon}.json?${params}`,

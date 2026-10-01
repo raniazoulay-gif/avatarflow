@@ -5,7 +5,13 @@
  */
 import { distanceMeters, bearingDegrees, type LatLon } from '@safedrive/core';
 import { fetchJson, MinIntervalGate, type FetchFn } from '../../lib/http.js';
-import { type RoadMatch, type RoadMatchingProvider, type SpeedLimitProvider, type SpeedLimitQuery, type SpeedLimitResult } from './types.js';
+import {
+  type RoadMatch,
+  type RoadMatchingProvider,
+  type SpeedLimitProvider,
+  type SpeedLimitQuery,
+  type SpeedLimitResult,
+} from './types.js';
 
 interface OverpassWay {
   type: 'way';
@@ -33,16 +39,20 @@ export function parseMaxspeed(raw: string | undefined): { kmh: number; confidenc
   return { kmh: Math.round(kmh), confidence: 0.8 };
 }
 
-function pointToSegmentMeters(p: LatLon, a: LatLon, b: LatLon): number {
+export function pointToSegmentMeters(p: LatLon, a: LatLon, b: LatLon): number {
   // Local equirectangular projection is accurate enough at these distances.
   const kx = 111_320 * Math.cos((p.lat * Math.PI) / 180);
   const ky = 110_540;
-  const ax = (a.lon - p.lon) * kx, ay = (a.lat - p.lat) * ky;
-  const bx = (b.lon - p.lon) * kx, by = (b.lat - p.lat) * ky;
-  const dx = bx - ax, dy = by - ay;
+  const ax = (a.lon - p.lon) * kx,
+    ay = (a.lat - p.lat) * ky;
+  const bx = (b.lon - p.lon) * kx,
+    by = (b.lat - p.lat) * ky;
+  const dx = bx - ax,
+    dy = by - ay;
   const len2 = dx * dx + dy * dy;
   const t = len2 > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
-  const cx = ax + t * dx, cy = ay + t * dy;
+  const cx = ax + t * dx,
+    cy = ay + t * dy;
   return Math.sqrt(cx * cx + cy * cy);
 }
 
@@ -58,7 +68,11 @@ export interface WayCandidate {
 }
 
 /** Picks the way closest to the fix, preferring ways aligned with the heading. */
-export function pickWay(ways: OverpassWay[], q: SpeedLimitQuery, maxDistanceM = 30): WayCandidate | null {
+export function pickWay(
+  ways: OverpassWay[],
+  q: SpeedLimitQuery,
+  maxDistanceM = 30,
+): WayCandidate | null {
   let best: WayCandidate | null = null;
   const p = { lat: q.lat, lon: q.lon };
   for (const w of ways) {
@@ -70,7 +84,10 @@ export function pickWay(ways: OverpassWay[], q: SpeedLimitQuery, maxDistanceM = 
       let penalty = 0;
       if (q.headingDeg !== null && distanceMeters(a, b) > 3) {
         const brg = bearingDegrees(a, b);
-        const diff = Math.min(headingDiff(brg, q.headingDeg), headingDiff((brg + 180) % 360, q.headingDeg));
+        const diff = Math.min(
+          headingDiff(brg, q.headingDeg),
+          headingDiff((brg + 180) % 360, q.headingDeg),
+        );
         penalty = diff > 45 ? 25 : diff / 3;
       }
       const score = d + penalty;
@@ -108,7 +125,10 @@ export class OsmOverpassProvider implements SpeedLimitProvider, RoadMatchingProv
       fetchJson<{ elements?: OverpassWay[] }>(this.url, {
         method: 'POST',
         body,
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': this.userAgent },
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': this.userAgent,
+        },
         timeoutMs: this.timeoutMs,
         fetchFn: this.fetchFn,
       }),
@@ -138,7 +158,11 @@ export class OsmOverpassProvider implements SpeedLimitProvider, RoadMatchingProv
     const parsed = parseMaxspeed(t.maxspeed);
     if (!parsed) return null;
     let confidence = parsed.confidence;
-    if (t['maxspeed:forward'] && t['maxspeed:backward'] && t['maxspeed:forward'] !== t['maxspeed:backward']) {
+    if (
+      t['maxspeed:forward'] &&
+      t['maxspeed:backward'] &&
+      t['maxspeed:forward'] !== t['maxspeed:backward']
+    ) {
       confidence = Math.min(confidence, 0.6); // direction-dependent, we used the generic tag
     }
     if (best.distanceM > 20) confidence -= 0.1;
@@ -151,6 +175,25 @@ export class OsmOverpassProvider implements SpeedLimitProvider, RoadMatchingProv
       highway: t.highway ?? null,
       country: q.countryCode,
       region: null,
+      geometry: simplify(best.way.geometry ?? [], 200),
     };
   }
+}
+
+/** Keeps at most `max` vertices (uniform thinning) so the geometry stays small in trip state. */
+function simplify(g: LatLon[], max: number): LatLon[] {
+  if (g.length <= max) return g.map((p) => ({ lat: p.lat, lon: p.lon }));
+  const step = (g.length - 1) / (max - 1);
+  return Array.from({ length: max }, (_, i) => g[Math.round(i * step)] as LatLon).map((p) => ({
+    lat: p.lat,
+    lon: p.lon,
+  }));
+}
+
+/** Distance from a point to a polyline (metres). */
+export function distanceToPolyline(p: LatLon, line: LatLon[]): number {
+  let best = Number.POSITIVE_INFINITY;
+  for (let i = 1; i < line.length; i++)
+    best = Math.min(best, pointToSegmentMeters(p, line[i - 1] as LatLon, line[i] as LatLon));
+  return best;
 }

@@ -12,7 +12,11 @@ export interface Membership {
   display_name: string;
 }
 
-export async function membership(db: Queryable, userId: string, familyId: string): Promise<Membership | null> {
+export async function membership(
+  db: Queryable,
+  userId: string,
+  familyId: string,
+): Promise<Membership | null> {
   const { rows } = await db.query<Membership>(
     `SELECT m.id AS member_id, m.family_id, m.role, m.display_name
      FROM family_members m JOIN families f ON f.id = m.family_id
@@ -22,13 +26,21 @@ export async function membership(db: Queryable, userId: string, familyId: string
   return rows[0] ?? null;
 }
 
-export async function requireMember(db: Queryable, userId: string, familyId: string): Promise<Membership> {
+export async function requireMember(
+  db: Queryable,
+  userId: string,
+  familyId: string,
+): Promise<Membership> {
   const m = await membership(db, userId, familyId);
   if (!m) throw notFound('Family not found');
   return m;
 }
 
-export async function requireParent(db: Queryable, userId: string, familyId: string): Promise<Membership> {
+export async function requireParent(
+  db: Queryable,
+  userId: string,
+  familyId: string,
+): Promise<Membership> {
   const m = await requireMember(db, userId, familyId);
   if (m.role !== 'PARENT') throw forbidden('Family administrators only');
   return m;
@@ -65,7 +77,10 @@ export async function requireTripAccess(
   userId: string,
   tripId: string,
 ): Promise<{ tripId: string; driver: DriverRow; as: 'self' | 'parent' }> {
-  const { rows } = await db.query<{ driver_id: string }>('SELECT driver_id FROM trips WHERE id = $1', [tripId]);
+  const { rows } = await db.query<{ driver_id: string }>(
+    'SELECT driver_id FROM trips WHERE id = $1',
+    [tripId],
+  );
   const t = rows[0];
   if (!t) throw notFound('Trip not found');
   try {

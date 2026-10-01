@@ -80,15 +80,29 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
   {
     id: 'degraded',
     name: 'Network / GPS / limit problems',
-    description: 'Network loss (offline queue), GPS loss, speed limit unavailable, hard acceleration',
+    description:
+      'Network loss (offline queue), GPS loss, speed limit unavailable, hard acceleration',
     path: ROUTE_1,
     roadName: 'כביש 1',
     segments: [
       { seconds: 4, fromKmh: 0, toKmh: 50, limitKmh: 90, label: 'hard acceleration' },
       { seconds: 20, fromKmh: 50, toKmh: 85, limitKmh: 90, label: 'normal' },
-      { seconds: 20, fromKmh: 85, toKmh: 88, limitKmh: 90, network: 'offline', label: 'network lost' },
+      {
+        seconds: 20,
+        fromKmh: 85,
+        toKmh: 88,
+        limitKmh: 90,
+        network: 'offline',
+        label: 'network lost',
+      },
       { seconds: 15, fromKmh: 88, toKmh: 88, limitKmh: 90, gps: 'lost', label: 'GPS lost' },
-      { seconds: 20, fromKmh: 88, toKmh: 125, limitKmh: null, label: 'limit unavailable (no violation)' },
+      {
+        seconds: 20,
+        fromKmh: 88,
+        toKmh: 125,
+        limitKmh: null,
+        label: 'limit unavailable (no violation)',
+      },
       { seconds: 15, fromKmh: 90, toKmh: 0, limitKmh: 90, label: 'stopping' },
     ],
   },
@@ -124,7 +138,8 @@ export interface DemoPoint {
 /** Points at 1 Hz, moving along the polyline according to the speed profile. */
 export function generateDemoPoints(s: DemoScenario, startMs: number): DemoPoint[] {
   const legLengths: number[] = [];
-  for (let i = 1; i < s.path.length; i++) legLengths.push(distanceMeters(s.path[i - 1] as LatLon, s.path[i] as LatLon));
+  for (let i = 1; i < s.path.length; i++)
+    legLengths.push(distanceMeters(s.path[i - 1] as LatLon, s.path[i] as LatLon));
   const total = legLengths.reduce((a, b) => a + b, 0);
   const positionAt = (meters: number): { p: LatLon; heading: number } => {
     let d = Math.min(Math.max(0, meters), total);
@@ -133,7 +148,10 @@ export function generateDemoPoints(s: DemoScenario, startMs: number): DemoPoint[
       const a = s.path[i] as LatLon;
       const b = s.path[i + 1] as LatLon;
       if (d <= len || i === legLengths.length - 1) {
-        return { p: interpolate(a, b, len > 0 ? Math.min(1, d / len) : 0), heading: bearingDegrees(a, b) };
+        return {
+          p: interpolate(a, b, len > 0 ? Math.min(1, d / len) : 0),
+          heading: bearingDegrees(a, b),
+        };
       }
       d -= len;
     }

@@ -49,7 +49,11 @@ export interface StoredNotification {
   isDemo: boolean;
 }
 
-export async function loadPreferences(db: Queryable, userId: string, familyId: string): Promise<NotificationPreferences> {
+export async function loadPreferences(
+  db: Queryable,
+  userId: string,
+  familyId: string,
+): Promise<NotificationPreferences> {
   const r = await db.query<{ prefs: Partial<NotificationPreferences> }>(
     'SELECT prefs FROM notification_preferences WHERE user_id = $1 AND family_id = $2',
     [userId, familyId],
@@ -86,7 +90,10 @@ export class NotificationService {
        AND created_at > now() - interval '1 day' ORDER BY created_at DESC LIMIT 1`,
       [userId, group],
     );
-    const dup = await this.db.query('SELECT 1 FROM notifications WHERE recipient_id = $1 AND dedupe_key = $2', [userId, input.dedupeKey]);
+    const dup = await this.db.query(
+      'SELECT 1 FROM notifications WHERE recipient_id = $1 AND dedupe_key = $2',
+      [userId, input.dedupeKey],
+    );
     const decision = decideNotification(
       { type: input.type, severity: input.severity, dedupeKey: input.dedupeKey, at },
       prefs,
@@ -174,7 +181,9 @@ export class NotificationService {
         [n.recipient_id],
       );
       if (!tokens.rowCount) {
-        await this.db.query(`UPDATE notifications SET push_status = 'skipped' WHERE id = $1`, [n.id]);
+        await this.db.query(`UPDATE notifications SET push_status = 'skipped' WHERE id = $1`, [
+          n.id,
+        ]);
         continue;
       }
       const results = await this.push.send(
@@ -195,14 +204,19 @@ export class NotificationService {
         else if (r) {
           lastErr = r.error;
           if (r.permanent) {
-            await this.db.query('UPDATE devices SET push_token = NULL WHERE id = $1', [tokens.rows[i]?.id]);
+            await this.db.query('UPDATE devices SET push_token = NULL WHERE id = $1', [
+              tokens.rows[i]?.id,
+            ]);
           }
         }
       }
       if (anyOk) {
         sent += 1;
         this.metrics.inc('push_sent');
-        await this.db.query(`UPDATE notifications SET push_status = 'sent', push_error = NULL WHERE id = $1`, [n.id]);
+        await this.db.query(
+          `UPDATE notifications SET push_status = 'sent', push_error = NULL WHERE id = $1`,
+          [n.id],
+        );
       } else {
         failed += 1;
         this.metrics.inc('push_failed');

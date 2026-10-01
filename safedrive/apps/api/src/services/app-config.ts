@@ -9,7 +9,11 @@ export function clearConfigCache(): void {
   cache.clear();
 }
 
-export async function safetyConfigFor(db: Queryable, familyId: string, countryCode: string): Promise<SafetyConfig> {
+export async function safetyConfigFor(
+  db: Queryable,
+  familyId: string,
+  countryCode: string,
+): Promise<SafetyConfig> {
   const key = `${familyId}:${countryCode}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.cfg;
@@ -33,7 +37,12 @@ function deepMerge(a: object, b: object): object {
   for (const [k, v] of Object.entries(b)) {
     const cur = out[k];
     out[k] =
-      cur && typeof cur === 'object' && !Array.isArray(cur) && v && typeof v === 'object' && !Array.isArray(v)
+      cur &&
+      typeof cur === 'object' &&
+      !Array.isArray(cur) &&
+      v &&
+      typeof v === 'object' &&
+      !Array.isArray(v)
         ? deepMerge(cur as object, v as object)
         : v;
   }

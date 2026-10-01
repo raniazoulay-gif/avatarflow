@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "SafeDrive",
+    "slug": "safedrive",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "safedrive",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "extra": {
+      "apiUrl": "http://10.0.2.2:4000",
+      "eas": { "projectId": "REPLACE_WITH_EAS_PROJECT_ID" }
+    },
+    "ios": {
+      "bundleIdentifier": "com.example.safedrive",
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "SafeDrive משתמשת במיקום ובמהירות בזמן נסיעה פעילה כדי לזהות מהירות מופרזת ולשתף את המשפחה. SafeDrive uses your location and speed during an active trip to detect speeding and share it with your family.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "כדי שהניטור ימשיך כשהמסך כבוי או כשמשתמשים באפליקציית ניווט, SafeDrive צריכה גישה למיקום גם ברקע - רק בזמן נסיעה פעילה. To keep monitoring while the screen is off or a navigation app is open, SafeDrive needs background location - only during an active trip.",
+        "UIBackgroundModes": ["location", "remote-notification"]
+      }
+    },
+    "android": {
+      "package": "com.example.safedrive",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "SafeDrive needs background location only during an active trip, so monitoring continues while you use a navigation app.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true,
+          "isIosBackgroundLocationEnabled": true
+        }
+      ],
+      ["expo-notifications", { "sounds": [] }],
+      "expo-secure-store"
+    ]
+  }
+}

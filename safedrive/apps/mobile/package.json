@@ -1,0 +1,39 @@
+{
+  "name": "@safedrive/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prebuild:core": "npm run build --prefix ../../packages/core"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "1.23.1",
+    "@react-native-community/netinfo": "11.4.1",
+    "@safedrive/core": "file:../../packages/core",
+    "expo": "~52.0.0",
+    "expo-asset": "~11.0.5",
+    "expo-battery": "~9.0.2",
+    "expo-constants": "~17.0.3",
+    "expo-crypto": "~14.0.2",
+    "expo-device": "~7.0.1",
+    "expo-location": "~18.0.4",
+    "expo-notifications": "~0.29.11",
+    "expo-secure-store": "~14.0.0",
+    "expo-status-bar": "~2.0.0",
+    "expo-task-manager": "~12.0.3",
+    "react": "18.3.1",
+    "react-native": "0.76.5",
+    "react-native-safe-area-context": "4.12.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@types/react": "~18.3.12",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

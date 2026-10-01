@@ -31,9 +31,7 @@ const schema = z.object({
   // Push notifications
   PUSH_PROVIDER: z.enum(['log', 'expo', 'none']).default('log'),
   EXPO_ACCESS_TOKEN: z.string().optional(),
-  // Geocoding (optional)
-  GEOCODING_PROVIDER: z.enum(['none', 'nominatim']).default('none'),
-  NOMINATIM_URL: z.string().default('https://nominatim.openstreetmap.org'),
+  // Sent in the User-Agent of provider calls (OSM usage policy)
   CONTACT_EMAIL: z.string().default('ops@example.com'),
   // Web map tiles handed to clients (MapProvider)
   MAP_TILE_URL: z.string().default('https://tile.openstreetmap.org/{z}/{x}/{y}.png'),

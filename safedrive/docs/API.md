@@ -50,8 +50,8 @@ Base URL: `http://localhost:4000` (dev). JSON over HTTPS.
 ## Trips & telemetry
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/trips/start` | `{driverId, deviceId?, monitoringRequestId?, isDemo?}` (the driver themself) → live view |
-| POST | `/trips/:id/telemetry` | `{points: [...]}` up to 500 per batch. Each point: `{id (uuid), seq ≥1, recordedAt, lat, lon, altitudeM?, speedMs?, headingDeg?, accuracyM?, source?, simulatedLimitKmh?}`. Response: `{accepted: [ids], duplicates: [ids], live}`. `simulated` points and `simulatedLimitKmh` are rejected on non-demo trips. |
+| POST | `/trips/start` | `{driverId, deviceId?, monitoringRequestId?}` (the driver themself) → live view. `isDemo` is decided by the server (demo families only). |
+| POST | `/trips/:id/telemetry` | `{points: [...]}` up to 500 per batch. Each point: `{id (uuid), seq ≥1, recordedAt, lat, lon, altitudeM?, speedMs?, headingDeg?, accuracyM?, source?, simulatedLimitKmh?}`. Response: `{accepted, duplicates, rejected, live}` (point ids). `rejected` means refused for good, for example recorded more than 2 min after the trip ended; the client must drop those points. A `seq` is accepted once per trip. `simulated` points and `simulatedLimitKmh` are rejected on non-demo trips. At most 20 external speed-limit lookups are made per batch, and impossible jumps (>300 km/h) get no lookup. |
 | POST | `/trips/:id/events` | Device events `PHONE_USAGE/GPS_UNAVAILABLE/PERMISSION_PROBLEM/CONNECTIVITY_LOSS`, deduplicated by `clientId` |
 | POST | `/trips/:id/stop` | Driver or parent |
 | GET | `/trips/:id` | Summary, speeding events, safety events, score breakdown |
@@ -82,7 +82,7 @@ Base URL: `http://localhost:4000` (dev). JSON over HTTPS.
 - `GET /config/client` (map tiles, thresholds, demo flag)
 
 ## Realtime – `GET /ws`
-1. Send `{"type":"auth","token":"ACCESS_TOKEN"}` within 5 s.
+1. Send `{"type":"auth","token":"ACCESS_TOKEN"}` within 10 s.
 2. You receive events `{type, data}`:
    - `trip.update`
    - `trip.started`
@@ -91,5 +91,5 @@ Base URL: `http://localhost:4000` (dev). JSON over HTTPS.
    - `sos`
    - `sos.status`
 
-   Only the user's own events and those of the user's families are delivered.
+   Only the user's own events and those of the user's families are delivered. Access is re-checked every 30 s: logout, suspension or removal from a family ends the stream.
 3. `{"type":"ping"}` → `pong`.

@@ -574,7 +574,7 @@ export class TelemetryService {
           bodyKey: 'notify.speeding',
           vars: {
             name,
-            severity: sev,
+            severity: `i18n:severity.${sev}`,
             speed: Math.round(e.maxSpeedKmh),
             limit: Math.round(e.speedLimitKmh),
           },

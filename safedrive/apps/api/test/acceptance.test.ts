@@ -124,6 +124,7 @@ describe('acceptance: full family driving flow', () => {
     const crit = n.body.items.find((x: any) => x.type === 'SPEEDING_CRITICAL');
     expect(crit.priority).toBe('critical');
     expect(crit.sound).toBe(true);
+    expect(crit.body).toContain('מסוכן'); // severity rendered in the parent's language
     const liveTrips = await f.parent.get(`/families/${f.familyId}/live`);
     expect(liveTrips.body[0]).toMatchObject({
       severity: 'CRITICAL',

@@ -108,8 +108,15 @@ export class NotificationService {
       'SELECT 1 FROM devices WHERE user_id = $1 AND revoked_at IS NULL AND push_token IS NOT NULL LIMIT 1',
       [userId],
     );
-    const title = t(locale, input.titleKey, input.vars);
-    const body = t(locale, input.bodyKey, input.vars);
+    // Values written as "i18n:<key>" are translated into the recipient's language.
+    const vars = Object.fromEntries(
+      Object.entries(input.vars).map(([k, v]) => [
+        k,
+        typeof v === 'string' && v.startsWith('i18n:') ? t(locale, v.slice(5)) : v,
+      ]),
+    );
+    const title = t(locale, input.titleKey, vars);
+    const body = t(locale, input.bodyKey, vars);
     const data = { ...(input.data ?? {}), cooldownGroup: group };
     const ins = await this.db.query<{ id: string; created_at: Date }>(
       `INSERT INTO notifications (family_id, recipient_id, driver_id, trip_id, type, priority, title, body, data,

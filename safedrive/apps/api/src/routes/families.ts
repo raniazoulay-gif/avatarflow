@@ -123,7 +123,7 @@ export function familyRoutes(app: FastifyInstance, ctx: AppContext): void {
     await requireParent(ctx.db, me(req).id, familyId);
     const { rows } = await ctx.db.query(
       `SELECT s.id, s.driver_id AS "driverId", d.display_name AS "driverName", s.trip_id AS "tripId", s.lat, s.lon,
-              s.speed_kmh AS "speedKmh", s.triggered_at AS "triggeredAt", s.status, s.is_demo AS "isDemo",
+              round(s.speed_kmh)::int AS "speedKmh", s.triggered_at AS "triggeredAt", s.status, s.is_demo AS "isDemo",
               s.acknowledged_at AS "acknowledgedAt", s.resolved_at AS "resolvedAt"
        FROM sos_events s JOIN drivers d ON d.id = s.driver_id WHERE s.family_id = $1 ORDER BY s.triggered_at DESC LIMIT 100`,
       [familyId],

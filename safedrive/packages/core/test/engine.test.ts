@@ -229,6 +229,25 @@ describe('adaptive telemetry policy', () => {
 });
 
 describe('offline queue', () => {
+  it('concurrent first use loads the persisted queue once and loses nothing', async () => {
+    const storage = new MemoryQueueStorage<number>();
+    const q1 = new OutboundQueue(storage);
+    await q1.enqueue('t', 1);
+    // A fresh instance (app restart): init + enqueue race (UI resume vs. background task).
+    const q2 = new OutboundQueue(storage);
+    await Promise.all([q2.init(), q2.enqueue('t', 2), q2.init(), q2.enqueue('t', 3)]);
+    expect(q2.size).toBe(3);
+    const q3 = new OutboundQueue(storage);
+    await q3.init();
+    expect(q3.size).toBe(3);
+    const seqs: number[] = [];
+    await q3.flush(async (b) => {
+      seqs.push(...b.map((x) => x.seq));
+      return { acknowledged: b.map((x) => x.id) };
+    });
+    expect(seqs).toEqual([1, 2, 3]);
+  });
+
   it('keeps order, survives restarts, retries with backoff and removes only acknowledged items', async () => {
     let now = 0;
     const storage = new MemoryQueueStorage<{ v: number }>();

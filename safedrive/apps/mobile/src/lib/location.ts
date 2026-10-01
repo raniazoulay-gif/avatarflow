@@ -49,6 +49,9 @@ const nativeLocation: LocationSource = {
     return bg?.status === 'granted' ? 'background' : 'foreground';
   },
   async start(plan: TelemetryPlan) {
+    // Already running (e.g. resumed by a headless start): keep it. Restarting the
+    // foreground service from the background is refused on Android 12+.
+    if (await Location.hasStartedLocationUpdatesAsync(LOCATION_TASK)) return;
     await startUpdates(plan);
   },
   async updatePlan(plan: TelemetryPlan) {
@@ -82,6 +85,7 @@ export const controller = new TripController({
   api: tripApi,
   location: nativeLocation,
   queue: new OutboundQueue<UploadPoint>(new AsyncQueueStorage<UploadPoint>(), {
+    maxItems: 20_000,
     idFactory: () => Crypto.randomUUID(),
   }),
   store: kv,
@@ -114,7 +118,8 @@ TaskManager.defineTask<{ locations: Location.LocationObject[] }>(
       return;
     }
     if (!controller.snapshot.tripId) {
-      // Headless start after the app was killed: restore the live trip first.
+      // Headless start after the app was killed: restore the live trip first (single-flight;
+      // it releases the GPS itself when there is no live trip any more).
       await controller.resume().catch(() => undefined);
     }
     for (const l of data?.locations ?? []) await controller.onFix(toFix(l));
@@ -122,10 +127,17 @@ TaskManager.defineTask<{ locations: Location.LocationObject[] }>(
 );
 
 let wired = false;
-/** Subscribes to connectivity / battery / app-state once (UI start-up). */
+/** Subscribes to connectivity / battery / app-state once (also in headless starts). */
 export function wireEnvironment(): void {
   if (wired) return;
   wired = true;
+  void NetInfo.fetch()
+    .then((s) => (online = s.isConnected !== false && s.isInternetReachable !== false))
+    .catch(() => undefined);
+  // Retry pending uploads / stop / SOS even when nothing else wakes the app up.
+  setInterval(() => {
+    if (online && controller.hasPendingWork) void controller.sync();
+  }, 30_000);
   NetInfo.addEventListener((s) => {
     const was = online;
     online = s.isConnected !== false && s.isInternetReachable !== false;
@@ -161,3 +173,5 @@ export function wireEnvironment(): void {
 }
 
 export const platform = Platform.OS === 'ios' ? 'ios' : 'android';
+
+wireEnvironment();

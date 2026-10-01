@@ -38,7 +38,9 @@ class FakeLocation implements LocationSource {
     this.perm = this.grantOnRequest;
     return this.perm;
   }
+  failStart = false;
   async start() {
+    if (this.failStart) throw new Error('location service unavailable');
     this.started += 1;
   }
   async updatePlan(p: { motion: string }) {
@@ -83,18 +85,26 @@ class FakeServer implements TripApi {
   private check() {
     if (!this.online) throw new Error('network down');
   }
-  async startTrip(input: { isDemo?: boolean }) {
+  /** Simulates an HTTP error with a status (like HttpError in src/lib/api.ts). */
+  uploadStatus: number | null = null;
+  stopStatus: number | null = null;
+  active: (LiveTripView & { lastSeq: number }) | null = null;
+  startDelay = 0;
+  async startTrip(_input: { driverId: string }) {
     this.check();
+    if (this.startDelay) await new Promise((r) => setTimeout(r, this.startDelay));
     this.tripCount += 1;
-    return { ...this.live(`trip${this.tripCount}`), isDemo: input.isDemo === true };
+    return this.live(`trip${this.tripCount}`);
   }
   async stopTrip(id: string) {
     this.check();
+    if (this.stopStatus) throw Object.assign(new Error('gone'), { status: this.stopStatus });
     this.stopped.push(id);
     return {};
   }
   async upload(tripId: string, pts: UploadPoint[]) {
     this.check();
+    if (this.uploadStatus) throw Object.assign(new Error('refused'), { status: this.uploadStatus });
     const m = this.points.get(tripId) ?? new Map();
     const accepted: string[] = [];
     const duplicates: string[] = [];
@@ -115,7 +125,7 @@ class FakeServer implements TripApi {
   }
   async activeTrip() {
     this.check();
-    return null;
+    return this.active;
   }
   async respondMonitoring(_id: string, status: string) {
     this.monitoringResponses.push(status);
@@ -276,5 +286,89 @@ describe('driver trip controller', () => {
     await c.onFix(s.fix(0));
     await c.onFix(s.fix(100));
     expect(s.loc.plans).toEqual(['STOPPED', 'MOVING_FAST']);
+  });
+
+  it('a double tap on START creates a single trip', async () => {
+    const s = setup();
+    s.server.startDelay = 5;
+    const c = s.make();
+    const [a, b] = await Promise.all([c.start('d1', 'dev1'), c.start('d1', 'dev1')]);
+    expect([a, b].filter(Boolean)).toHaveLength(1);
+    expect(s.server.tripCount).toBe(1);
+  });
+
+  it('if GPS cannot start, the server trip is ended instead of left orphaned', async () => {
+    const s = setup();
+    s.loc.failStart = true;
+    const c = s.make();
+    expect(await c.start('d1', 'dev1')).toBe(false);
+    expect(s.server.stopped).toEqual(['trip1']);
+    expect(c.snapshot.tripId).toBeNull();
+    expect(c.snapshot.error).toContain('location');
+  });
+
+  it('a stop made offline survives a restart and never restarts GPS for that trip', async () => {
+    const s = setup();
+    const c = s.make();
+    await c.start('d1', 'dev1');
+    await c.onFix(s.fix(50));
+    s.server.online = false;
+    await c.stop();
+    // App killed; the server still thinks the trip is live.
+    s.server.active = { ...(c.snapshot.live as LiveTripView), lastSeq: 0 };
+    const started = s.loc.started;
+    const c2 = s.make();
+    await c2.resume();
+    expect(c2.snapshot.state).toBe('ENDING');
+    expect(s.loc.started).toBe(started);
+    s.server.online = true;
+    await c2.sync(true);
+    expect(s.server.stopped).toEqual(['trip1']);
+    expect(c2.snapshot.state).toBe('IDLE');
+    expect(s.server.points.get('trip1')?.size).toBe(1);
+  });
+
+  it('a batch the server refuses for good (4xx) is dropped instead of blocking forever', async () => {
+    const s = setup();
+    const c = s.make();
+    await c.start('d1', 'dev1');
+    s.server.uploadStatus = 404;
+    await c.onFix(s.fix(50));
+    await c.sync(true);
+    expect(c.snapshot.queued).toBe(0);
+    s.server.uploadStatus = 500; // transient: kept for retry
+    await c.onFix(s.fix(50));
+    await c.sync(true);
+    expect(c.snapshot.queued).toBe(1);
+  });
+
+  it('a trip already ended on the server (409) completes a pending stop', async () => {
+    const s = setup();
+    const c = s.make();
+    await c.start('d1', 'dev1');
+    s.server.stopStatus = 409;
+    await c.stop();
+    expect(c.snapshot.pendingStop).toBe(false);
+    expect(c.snapshot.state).toBe('IDLE');
+  });
+
+  it('two SOS presses while a flush is running are both delivered', async () => {
+    const s = setup();
+    const c = s.make();
+    await c.start('d1', 'dev1');
+    await Promise.all([c.sos(), c.sos(), c.sync(true)]);
+    expect(s.server.sosCalls).toHaveLength(2);
+    expect(c.snapshot.pendingSos).toBe(0);
+  });
+
+  it('concurrent resume calls (UI + headless task) run once', async () => {
+    const s = setup();
+    s.server.active = { ...(await s.server.startTrip({ driverId: 'd1' })), lastSeq: 3 };
+    const c = s.make();
+    await Promise.all([c.resume(), c.resume(), c.resume()]);
+    expect(s.loc.started).toBe(1);
+    await c.onFix(s.fix(50));
+    await c.sync(true);
+    expect([...(s.server.points.get('trip1')?.keys() ?? [])]).toEqual([4]);
   });
 });

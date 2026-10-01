@@ -60,8 +60,18 @@ async function pushToken(): Promise<{ token: string | null; status: string }> {
 
 const K_DEVICE = 'sd.deviceId';
 
-/** Registers (or refreshes) this device with its permissions and honest capability flags. */
-export async function registerDevice(location: PermissionLevel): Promise<string | null> {
+let registering: Promise<string | null> = Promise.resolve(null);
+
+/**
+ * Registers (or refreshes) this device with its permissions and honest capability flags.
+ * Serialised: the first call creates the device, concurrent/later calls PATCH it.
+ */
+export function registerDevice(location: PermissionLevel): Promise<string | null> {
+  registering = registering.catch(() => null).then(() => doRegister(location));
+  return registering;
+}
+
+async function doRegister(location: PermissionLevel): Promise<string | null> {
   await ensureChannels();
   const push = await pushToken();
   const body = {

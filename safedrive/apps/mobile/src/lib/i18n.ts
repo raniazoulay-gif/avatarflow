@@ -43,7 +43,6 @@ const he = {
   speedingFor: 'חריגה כבר {sec} שנ׳',
   noLimit: 'מגבלת מהירות לא זמינה - לא נרשמת חריגה',
   openNav: 'פתח ניווט',
-  demo: 'נסיעת הדגמה (סימולציה)',
   demoBadge: 'הדגמה - נתונים מדומים',
   liveTrips: 'נסיעות פעילות',
   noLiveTrips: 'אין כרגע נסיעות פעילות',
@@ -55,6 +54,8 @@ const he = {
     'אפשר לזהות רק שימוש ב-SafeDrive עצמה בזמן תנועה. שימוש באפליקציות אחרות חסום ע״י מערכת ההפעלה.',
   bgMissingHint: 'בלי מיקום ברקע הניטור נעצר כשעוברים לאפליקציית ניווט או נועלים מסך.',
   error: 'שגיאה',
+  signOutBlocked: 'יש לסיים את הנסיעה ולהמתין לסנכרון הנתונים לפני התנתקות',
+  sosFailed: 'שליחת SOS נכשלה - התקשר/י ישירות למספרי החירום',
 };
 type Key = keyof typeof he;
 const en: Record<Key, string> = {
@@ -98,7 +99,6 @@ const en: Record<Key, string> = {
   speedingFor: 'Speeding for {sec}s',
   noLimit: 'Speed limit unavailable - no violation is recorded',
   openNav: 'Open navigation',
-  demo: 'Demo trip (simulation)',
   demoBadge: 'DEMO - simulated data',
   liveTrips: 'Live trips',
   noLiveTrips: 'No live trips right now',
@@ -111,6 +111,8 @@ const en: Record<Key, string> = {
   bgMissingHint:
     'Without background location, monitoring stops when you switch to a navigation app or lock the screen.',
   error: 'Error',
+  signOutBlocked: 'End the trip and wait for data to sync before signing out',
+  sosFailed: 'SOS could not be recorded - call the emergency numbers directly',
 };
 
 export let lang: 'he' | 'en' = 'he';
@@ -120,7 +122,9 @@ export function setLang(l: 'he' | 'en'): void {
   const rtl = isRtl(l);
   if (I18nManager.isRTL !== rtl) {
     I18nManager.allowRTL(rtl);
-    I18nManager.forceRTL(rtl); // takes effect after the next app reload
+    // Native RTL is forced from the first launch by the expo-localization plugin (app.json);
+    // this only matters if the language is switched at runtime (applies after a restart).
+    I18nManager.forceRTL(rtl);
   }
 }
 

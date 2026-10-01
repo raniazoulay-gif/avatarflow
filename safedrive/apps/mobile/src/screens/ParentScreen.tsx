@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { RefreshControl, ScrollView, Text, View } from 'react-native';
+import { AppState, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { type LiveTripView } from '@safedrive/core';
 import { Banner, Card, SEVERITY_COLORS, styles } from '../components/ui';
 import { call } from '../lib/api';
@@ -20,25 +20,31 @@ export function ParentScreen({ family }: { family: FamilyRef }) {
   const [notes, setNotes] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [l, n] = await Promise.all([
-        call<LiveTripView[]>(`/families/${family.id}/live`),
-        call<{ items: Notification[] }>('/notifications?limit=20'),
-      ]);
-      setLive(l);
-      setNotes(n.items);
-    } catch {
-      // offline
-    } finally {
-      setLoading(false);
-    }
-  }, [family.id]);
+  const load = useCallback(
+    async (manual = false) => {
+      if (manual) setLoading(true);
+      try {
+        const [l, n] = await Promise.all([
+          call<LiveTripView[]>(`/families/${family.id}/live`),
+          call<{ items: Notification[] }>('/notifications?limit=20'),
+        ]);
+        setLive(l);
+        setNotes(n.items);
+      } catch {
+        // offline
+      } finally {
+        setLoading(false);
+      }
+    },
+    [family.id],
+  );
 
   useEffect(() => {
     void load();
-    const t = setInterval(load, 5_000);
+    // Poll only while the app is in the foreground (battery, data).
+    const t = setInterval(() => {
+      if (AppState.currentState === 'active') void load();
+    }, 5_000);
     return () => clearInterval(t);
   }, [load]);
 
@@ -46,7 +52,7 @@ export function ParentScreen({ family }: { family: FamilyRef }) {
     <ScrollView
       style={styles.screen}
       contentContainerStyle={styles.pad}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}
+      refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load(true)} />}
     >
       <Text style={styles.h1}>{family.name}</Text>
       <Text style={styles.h2}>{s('liveTrips')}</Text>

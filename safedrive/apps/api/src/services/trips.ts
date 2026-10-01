@@ -54,7 +54,9 @@ export class TripService {
   async start(userId: string, input: StartTripInput, ip?: string): Promise<LiveTripView> {
     const drv = await this.driver(input.driverId);
     if (drv.user_id !== userId) throw notFound('Driver not found');
-    const isDemo = input.isDemo === true || drv.is_demo_family;
+    // Demo is a property of the family, never a client choice: a real driver cannot
+    // label a real trip as "demo" to hide it from scoring or feed simulated limits.
+    const isDemo = drv.is_demo_family;
     let remote = false;
     if (input.monitoringRequestId) {
       const mr = await this.d.db.query<{ status: string; driver_id: string }>(
@@ -74,7 +76,8 @@ export class TripService {
       trip = await withTx(this.d.db, async (c) => {
         const ins = await c.query<TripRow>(
           `INSERT INTO trips (family_id, driver_id, device_id, state, is_demo, demo_scenario, started_by, monitoring_request_id, engine_state)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+           VALUES ($1, $2, (SELECT id FROM devices WHERE id = $3::uuid AND user_id = $10 AND revoked_at IS NULL),
+                   $4, $5, $6, $7, $8, $9) RETURNING *`,
           [
             drv.family_id,
             drv.id,
@@ -85,6 +88,7 @@ export class TripService {
             isDemo && input.demoScenario ? 'demo' : remote ? 'remote_request' : 'driver',
             input.monitoringRequestId ?? null,
             initialEngineState(),
+            drv.user_id,
           ],
         );
         const t = ins.rows[0] as TripRow;

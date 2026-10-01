@@ -41,6 +41,8 @@ interface Deps {
   sos: SosService;
 }
 
+const MAX_DEMO_FAMILIES = 5;
+
 export class DemoService {
   private runs = new Map<string, DemoRun & { cancel: boolean }>();
 
@@ -51,6 +53,13 @@ export class DemoService {
     parentId: string,
     driverName = 'רומי (הדגמה)',
   ): Promise<{ familyId: string; driverId: string }> {
+    const owned = await this.d.db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM families f JOIN family_members m ON m.family_id = f.id
+       WHERE m.user_id = $1 AND f.is_demo AND f.deleted_at IS NULL AND m.removed_at IS NULL`,
+      [parentId],
+    );
+    if ((owned.rows[0]?.n ?? 0) >= MAX_DEMO_FAMILIES)
+      throw badRequest(`At most ${MAX_DEMO_FAMILIES} demo families per account`);
     const fam = await this.d.families.create(parentId, {
       name: 'משפחת הדגמה (Demo)',
       isDemo: true,
@@ -141,6 +150,10 @@ export class DemoService {
       progress: 0,
       cancel: false,
     };
+    // One active run per driver; bounded memory (finished runs kept for an hour).
+    for (const r of this.runs.values()) if (r.driverId === driverId) r.cancel = true;
+    for (const [id, r] of this.runs)
+      if (r.status !== 'running' && Date.now() - r.startedAt > 60 * 60_000) this.runs.delete(id);
     this.runs.set(run.id, run);
     const points = generateDemoPoints(scenario, Date.now());
     void this.drive(run, driver.user_id, points, Math.max(1, Math.min(20, speedFactor))).catch(

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { colors, styles } from './components/ui';
@@ -22,9 +22,10 @@ function Root() {
   useEffect(() => {
     wireEnvironment();
   }, []);
+  const userId = user?.id;
   useEffect(() => {
-    if (user) void controller.resume().catch(() => undefined);
-  }, [user]);
+    if (userId) void controller.resume().catch(() => undefined);
+  }, [userId]);
   useEffect(() => onNotificationTap(() => setView('main')), []);
 
   if (!ready)
@@ -53,7 +54,10 @@ function Root() {
               onPress={() => setView(view === 'parent' ? 'main' : 'parent')}
             />
           )}
-          <Tab label={s('logout')} onPress={signOut} />
+          <Tab
+            label={s('logout')}
+            onPress={() => signOut().catch((e: Error) => Alert.alert(s('error'), e.message))}
+          />
         </View>
       </View>
       {view === 'sos' && <SosScreen family={family} onBack={() => setView('main')} />}

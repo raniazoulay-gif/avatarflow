@@ -174,6 +174,9 @@ export async function setupFamily(app: FastifyInstance, driverName = 'Romi'): Pr
   };
 }
 
+/** Where the previous batch ended (by next seq), so consecutive batches form one track. */
+const trackEnd = new Map<number, number>();
+
 /** 1 Hz points moving north (~speed m/s apart) starting at seq/time. */
 export function makePoints(
   speedsKmh: Array<number | null>,
@@ -185,10 +188,10 @@ export function makePoints(
     extra?: Record<string, unknown>;
   } = {},
 ) {
-  let lat = opts.lat ?? 32.0;
   const startSeq = opts.startSeq ?? 1;
+  let lat = opts.lat ?? (startSeq > 1 ? trackEnd.get(startSeq) : undefined) ?? 32.0;
   const startT = opts.startT ?? Date.now() - speedsKmh.length * 1000;
-  return speedsKmh.map((kmh, i) => {
+  const out = speedsKmh.map((kmh, i) => {
     const ms = kmh === null ? null : kmh / 3.6;
     lat += (ms ?? 0) / 111_320;
     return {
@@ -203,6 +206,8 @@ export function makePoints(
       ...(opts.extra ?? {}),
     };
   });
+  trackEnd.set(startSeq + speedsKmh.length, lat);
+  return out;
 }
 
 export const repeat = (n: number, v: number): number[] => Array.from({ length: n }, () => v);

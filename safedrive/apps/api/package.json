@@ -11,6 +11,7 @@
     "start": "node dist/server.js",
     "migrate": "tsx src/db/migrate-cli.ts",
     "demo": "tsx src/scripts/demo-cli.ts",
+    "admin:grant": "tsx src/scripts/grant-admin.ts",
     "test": "vitest run"
   },
   "dependencies": {

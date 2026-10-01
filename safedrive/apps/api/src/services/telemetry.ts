@@ -130,6 +130,8 @@ export function normalizePoints(points: IncomingPoint[], now = Date.now()): Norm
 export interface IngestResult {
   accepted: string[];
   duplicates: string[];
+  /** Refused for good (e.g. recorded long after the trip ended): the client must drop them. */
+  rejected: string[];
   live: LiveTripView | null;
 }
 
@@ -147,6 +149,18 @@ interface Deps {
 const GOOD_ACCURACY_M = 50;
 /** A fix within this distance of the last matched road geometry is considered on that road. */
 const ON_ROAD_METERS = 15;
+/** Upper bound of external speed-limit lookups per uploaded batch. */
+const MAX_LOOKUPS_PER_BATCH = 20;
+/** Faster than this between two fixes (m/s, ~300 km/h) is a GPS jump or a forged track. */
+const MAX_PLAUSIBLE_MS = 85;
+/** Points recorded more than this after the trip ended are refused (late sync is still fine). */
+const LATE_AFTER_END_MS = 2 * 60_000;
+
+function acceptable(trip: TripRow, points: NormalPoint[]): NormalPoint[] {
+  if (!trip.ended_at) return points;
+  const end = new Date(trip.ended_at).getTime() + LATE_AFTER_END_MS;
+  return points.filter((p) => p.t <= end);
+}
 /** Even on the same road, re-validate the limit this often (signs can change mid-way). */
 const SAME_ROAD_REFRESH_SECONDS = 120;
 
@@ -158,12 +172,12 @@ export class TelemetryService {
     const points = normalizePoints(raw);
     const head = await this.d.db.query<TripRow & { user_id: string; country_code: string }>(
       `SELECT t.*, d.user_id, f.country_code FROM trips t JOIN drivers d ON d.id = t.driver_id
-       JOIN families f ON f.id = t.family_id WHERE t.id = $1`,
+       JOIN families f ON f.id = t.family_id WHERE t.id = $1 AND d.deleted_at IS NULL`,
       [tripId],
     );
     const trip0 = head.rows[0];
     if (!trip0 || trip0.user_id !== userId) throw badRequest('Unknown trip');
-    if (points.length === 0) return { accepted: [], duplicates: [], live: null };
+    if (points.length === 0) return { accepted: [], duplicates: [], rejected: [], live: null };
     if (
       !trip0.is_demo &&
       points.some((p) => p.source === 'simulated' || p.simulatedLimitKmh !== null)
@@ -179,7 +193,7 @@ export class TelemetryService {
         tripId,
       ]);
       const trip = locked.rows[0] as TripRow;
-      const inserted = await this.insertPoints(c, trip, points, limits);
+      const inserted = await this.insertPoints(c, trip, acceptable(trip, points), limits);
       const fresh = points.filter((p) => inserted.has(p.seq) && p.seq > trip.last_seq);
       if (!trip.ended_at && isLive(trip.state) && fresh.length > 0) {
         return { ...(await this.process(c, trip, fresh, limits, cfg)), inserted };
@@ -193,7 +207,12 @@ export class TelemetryService {
     });
 
     const accepted = points.filter((p) => outcome.inserted.has(p.seq)).map((p) => p.id);
-    const duplicates = points.filter((p) => !outcome.inserted.has(p.seq)).map((p) => p.id);
+    const late = new Set(
+      points.filter((p) => !acceptable(outcome.trip, [p]).length).map((p) => p.id),
+    );
+    const duplicates = points
+      .filter((p) => !outcome.inserted.has(p.seq) && !late.has(p.id))
+      .map((p) => p.id);
     this.d.metrics.inc('telemetry_points_received', points.length);
     this.d.metrics.inc('telemetry_points_duplicate', duplicates.length);
     const name = await driverName(this.d.db, outcome.trip.driver_id);
@@ -217,7 +236,7 @@ export class TelemetryService {
       });
     }
     this.d.metrics.time('telemetry_batch', performance.now() - t0);
-    return { accepted, duplicates, live };
+    return { accepted, duplicates, rejected: [...late], live };
   }
 
   /** Decides which points need a lookup (moved enough / time passed) and resolves them. */
@@ -239,6 +258,7 @@ export class TelemetryService {
     }
     const state = (trip.engine_state as Partial<EngineState>) ?? {};
     let last = state.lastLookup ?? null;
+    let lookups = 0;
     this.lastLookups.set(trip.id, last);
     for (const p of points) {
       if (p.accuracyM !== null && p.accuracyM > GOOD_ACCURACY_M) {
@@ -256,6 +276,16 @@ export class TelemetryService {
             (p.t - last.t) / 1000 >= this.d.lookupMinSeconds)) ||
         (onSameRoad && (p.t - last.t) / 1000 >= SAME_ROAD_REFRESH_SECONDS);
       if (due || (last?.geometry && !onSameRoad)) {
+        const dt = last ? (p.t - last.t) / 1000 : 0;
+        const impossible = !!last && dt > 0 && distanceMeters(last, p) / dt > MAX_PLAUSIBLE_MS;
+        if (lookups >= MAX_LOOKUPS_PER_BATCH || impossible) {
+          // Protects shared providers from floods / forged tracks: degrade to "unavailable",
+          // which never produces a violation. After a jump, re-anchor at the new position.
+          if (impossible) last = { t: p.t, lat: p.lat, lon: p.lon, limit: null, geometry: null };
+          out.set(p.seq, null);
+          continue;
+        }
+        lookups += 1;
         const r = await this.d.speedLimits.resolve({
           lat: p.lat,
           lon: p.lon,
@@ -283,6 +313,15 @@ export class TelemetryService {
     points: NormalPoint[],
     limits: Map<number, SpeedLimitInfo | null>,
   ): Promise<Set<number>> {
+    if (points.length === 0) return new Set();
+    // A sequence number is accepted once per trip, whatever its timestamp (no rewriting).
+    const known = await c.query<{ seq: number }>(
+      'SELECT seq FROM telemetry_points WHERE trip_id = $1 AND seq = ANY($2::int[])',
+      [trip.id, points.map((p) => p.seq)],
+    );
+    const seen = new Set(known.rows.map((r) => r.seq));
+    points = points.filter((p) => !seen.has(p.seq));
+    if (points.length === 0) return new Set();
     const cols = 14;
     const values: unknown[] = [];
     const rows: string[] = [];

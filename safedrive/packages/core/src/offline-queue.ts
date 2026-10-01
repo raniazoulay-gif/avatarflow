@@ -77,11 +77,21 @@ export class OutboundQueue<T> {
     return (this.opt.now ?? Date.now)();
   }
 
-  async init(): Promise<void> {
-    if (this.loaded) return;
-    const s = await this.storage.load();
-    if (s) this.snap = s;
-    this.loaded = true;
+  private initializing: Promise<void> | null = null;
+
+  /** Loads the persisted queue once; concurrent callers share the same load. */
+  init(): Promise<void> {
+    if (this.loaded) return Promise.resolve();
+    this.initializing ??= (async () => {
+      try {
+        const s = await this.storage.load();
+        if (s) this.snap = s;
+        this.loaded = true;
+      } finally {
+        this.initializing = null;
+      }
+    })();
+    return this.initializing;
   }
 
   get size(): number {

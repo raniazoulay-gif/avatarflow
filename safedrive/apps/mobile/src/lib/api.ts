@@ -16,6 +16,23 @@ export interface User {
 }
 
 let access: string | null = null;
+const TIMEOUT_MS = 20_000;
+
+/** A hung request must never block the upload queue forever. */
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: ctl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/** True when a refresh token is stored (the user signed in on this device). */
+export async function hasStoredSession(): Promise<boolean> {
+  return (await SecureStore.getItemAsync(REFRESH_KEY)) !== null;
+}
 let refreshing: Promise<boolean> | null = null;
 const REFRESH_KEY = 'sd.refresh';
 
@@ -39,7 +56,7 @@ async function refresh(): Promise<boolean> {
       const token = await SecureStore.getItemAsync(REFRESH_KEY);
       if (!token) return false;
       try {
-        const r = await fetch(`${API_URL}/auth/refresh`, {
+        const r = await fetchWithTimeout(`${API_URL}/auth/refresh`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ refreshToken: token }),
@@ -75,7 +92,7 @@ export async function call<T>(
   retry = true,
 ): Promise<T> {
   if (!access && retry) await refresh();
-  const r = await fetch(`${API_URL}${path}`, {
+  const r = await fetchWithTimeout(`${API_URL}${path}`, {
     method,
     headers: {
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),

@@ -200,3 +200,60 @@ describe('input validation', () => {
     expect(future.status).toBe(400);
   });
 });
+
+describe('telemetry abuse protections', () => {
+  it('a client cannot label a real trip as demo', async () => {
+    const r = await b.driver.post('/trips/start', { driverId: b.driverId, isDemo: true });
+    expect(r.status).toBe(200);
+    expect(r.body.isDemo).toBe(false);
+    await b.driver.post(`/trips/${r.body.tripId}/stop`);
+  });
+
+  it('a sequence number cannot be rewritten with another timestamp', async () => {
+    const before = (await a.parent.get(`/trips/${tripA}/points`)).body.length;
+    const forged = makePoints([200], { startSeq: 1, startT: Date.now() - 1000, lat: 31.5 });
+    const r = await a.driver.post(`/trips/${tripA}/telemetry`, { points: forged });
+    expect(r.body.duplicates).toEqual([forged[0]!.id]);
+    expect((await a.parent.get(`/trips/${tripA}/points`)).body.length).toBe(before);
+  });
+
+  it('refuses points recorded long after the trip ended (late sync before the end is fine)', async () => {
+    const trip = (await b.driver.post('/trips/start', { driverId: b.driverId })).body.tripId;
+    await b.driver.post(`/trips/${trip}/stop`);
+    await t.ctx.db.query(`UPDATE trips SET ended_at = now() - interval '1 hour' WHERE id = $1`, [
+      trip,
+    ]);
+    const early = makePoints([50], { startT: Date.now() - 2 * 3_600_000 });
+    const late = makePoints([50], { startSeq: 2, startT: Date.now() - 1000 });
+    const r = await b.driver.post(`/trips/${trip}/telemetry`, { points: [...early, ...late] });
+    expect(r.body.accepted).toEqual([early[0]!.id]);
+    expect(r.body.rejected).toEqual([late[0]!.id]);
+  });
+
+  it('caps external speed-limit lookups per batch and never looks up impossible jumps', async () => {
+    const trip = (await b.driver.post('/trips/start', { driverId: b.driverId })).body.tripId;
+    const calls0 = t.provider.calls;
+    const t0 = Date.now() - 400_000;
+    // 100 fixes 200 m / 3 s apart (240 km/h): every one is "due" for a lookup.
+    const pts = Array.from({ length: 100 }, (_, i) => ({
+      id: randomUUID(),
+      seq: i + 1,
+      recordedAt: t0 + i * 3000,
+      lat: 30.5 + (i * 200) / 111_320,
+      lon: 35.0,
+      speedMs: 66,
+      headingDeg: 0,
+      accuracyM: 5,
+    }));
+    await b.driver.post(`/trips/${trip}/telemetry`, { points: pts });
+    expect(t.provider.calls - calls0).toBeLessThanOrEqual(20);
+    const calls1 = t.provider.calls;
+    // A 50 km jump in one second is not a road: no lookup, limit unavailable.
+    const jump = { ...pts[0]!, id: randomUUID(), seq: 101, recordedAt: t0 + 300_000, lat: 31.0 };
+    const jump2 = { ...jump, id: randomUUID(), seq: 102, recordedAt: t0 + 301_000, lat: 31.45 };
+    const r = await b.driver.post(`/trips/${trip}/telemetry`, { points: [jump, jump2] });
+    expect(t.provider.calls - calls1).toBeLessThanOrEqual(1);
+    expect(r.body.live.severity).toBe('SAFE');
+    await b.driver.post(`/trips/${trip}/stop`);
+  });
+});

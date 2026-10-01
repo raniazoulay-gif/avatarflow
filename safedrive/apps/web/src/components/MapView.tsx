@@ -88,7 +88,8 @@ export function MapView({
         fillColor: mk.color,
         fillOpacity: 1,
       })
-        .bindTooltip(mk.label, { permanent: true, direction: 'top', offset: [0, -10] })
+        // Labels contain user-provided names: pass a text node, never an HTML string.
+        .bindTooltip(textNode(mk.label), { permanent: true, direction: 'top', offset: [0, -10] })
         .addTo(g);
       bounds.push([mk.lat, mk.lon]);
     }
@@ -119,4 +120,10 @@ export function MapView({
   }, [markers, route, cursor, fit]);
 
   return <div ref={el} className="map" style={{ height }} />;
+}
+
+function textNode(text: string): HTMLElement {
+  const el = document.createElement('span');
+  el.textContent = text;
+  return el;
 }

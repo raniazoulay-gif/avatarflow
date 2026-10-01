@@ -14,8 +14,14 @@ const deviceBody = z.object({
   pushToken: z.string().max(300).nullable().optional(),
   pushProvider: z.enum(['expo', 'fcm', 'apns']).optional(),
   /** What this device can actually do (see MOBILE_PERMISSIONS.md / PhoneUsageProvider). */
-  capabilities: z.record(z.union([z.string().max(60), z.boolean(), z.number()])).optional(),
-  permissions: z.record(permissionStatus).optional(),
+  capabilities: z
+    .record(z.string().max(60), z.union([z.string().max(60), z.boolean(), z.number()]))
+    .refine((o) => Object.keys(o).length <= 30, 'Too many capabilities')
+    .optional(),
+  permissions: z
+    .record(z.string().max(60), permissionStatus)
+    .refine((o) => Object.keys(o).length <= 20, 'Too many permissions')
+    .optional(),
 });
 
 export function deviceRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -110,8 +116,8 @@ export function deviceRoutes(app: FastifyInstance, ctx: AppContext): void {
       [p.id, me(req).id],
     );
     await ctx.db.query(
-      'UPDATE device_sessions SET revoked_at = now() WHERE device_id = $1 AND revoked_at IS NULL',
-      [p.id],
+      'UPDATE device_sessions SET revoked_at = now() WHERE device_id = $1 AND user_id = $2 AND revoked_at IS NULL',
+      [p.id, me(req).id],
     );
     return { ok: true };
   });

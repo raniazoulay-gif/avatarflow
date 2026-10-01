@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { Banner, Button, Card, SEVERITY_COLORS, colors, styles } from '../components/ui';
 import { call } from '../lib/api';
-import { demoRunning, startDemo, stopDemo } from '../lib/demo';
 import { s, tc } from '../lib/i18n';
 import { controller } from '../lib/location';
 import { NAVIGATION_PROVIDERS, openNavigationApp } from '../lib/navigation';
@@ -29,8 +28,9 @@ export function DriverScreen({ driverId, onSos }: { driverId: string; onSos: () 
   );
 
   useEffect(() => controller.setDriver(driverId), [driverId]);
+  // Serialised inside registerDevice: the first call creates the device, later ones PATCH it.
   useEffect(() => {
-    void registerDevice(snap.permission).then(setDeviceId);
+    if (snap.permission !== 'undetermined') void registerDevice(snap.permission).then(setDeviceId);
   }, [snap.permission]);
 
   const loadRequests = useCallback(async () => {
@@ -74,9 +74,13 @@ export function DriverScreen({ driverId, onSos }: { driverId: string; onSos: () 
         text: s('sos'),
         style: 'destructive',
         onPress: async () => {
-          await controller.sos().catch(() => undefined);
-          Alert.alert(s('sos'), controller.snapshot.pendingSos ? s('sosQueued') : s('sosSent'));
-          onSos();
+          try {
+            await controller.sos();
+            Alert.alert(s('sos'), controller.snapshot.pendingSos ? s('sosQueued') : s('sosSent'));
+          } catch {
+            Alert.alert(s('sos'), s('sosFailed'));
+          }
+          onSos(); // always show the emergency numbers
         },
       },
     ]);
@@ -124,11 +128,6 @@ export function DriverScreen({ driverId, onSos }: { driverId: string; onSos: () 
         </Card>
         {snap.pendingSos > 0 && <Banner text={s('sosQueued')} color={colors.danger} />}
         <Button kind="danger" title={s('sos')} onPress={confirmSos} />
-        <Button
-          kind="ghost"
-          title={s('demo')}
-          onPress={() => void startDemo(driverId, 'full', 1)}
-        />
       </ScrollView>
     );
   }
@@ -205,14 +204,7 @@ export function DriverScreen({ driverId, onSos }: { driverId: string; onSos: () 
           ))}
         </View>
         <Button big kind="danger" title={s('sos')} onPress={confirmSos} />
-        <Button
-          kind="ghost"
-          title={s('endDriving')}
-          onLongPress={() => {
-            if (demoRunning()) stopDemo(true);
-            else void controller.stop();
-          }}
-        />
+        <Button kind="ghost" title={s('endDriving')} onLongPress={() => void controller.stop()} />
       </ScrollView>
     </Pressable>
   );

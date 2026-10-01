@@ -74,7 +74,12 @@ export class AuthService {
     );
     if (exists.rowCount) throw conflict('An account with this email already exists');
     const hash = await hashPassword(input.password);
-    const admin = !!this.bootstrapAdminEmail && this.bootstrapAdminEmail.toLowerCase() === email;
+    // BOOTSTRAP_ADMIN_EMAIL only creates the *first* admin (there is no email verification,
+    // so it must never re-grant later). Further admins: `npm run admin:grant`.
+    const admin =
+      !!this.bootstrapAdminEmail &&
+      this.bootstrapAdminEmail.toLowerCase() === email &&
+      !(await this.db.query('SELECT 1 FROM users WHERE is_system_admin LIMIT 1')).rowCount;
     const { rows } = await this.db.query<UserRow>(
       `INSERT INTO users (email, password_hash, display_name, locale, is_system_admin)
        VALUES ($1, $2, $3, $4, $5) RETURNING id, email, display_name, locale, is_system_admin, status`,
@@ -148,7 +153,8 @@ export class AuthService {
     const secret = randomToken();
     const { rows } = await this.db.query<{ id: string }>(
       `INSERT INTO device_sessions (user_id, device_id, chain_id, token_hash, expires_at, ip, user_agent)
-       VALUES ($1, $2, $3, $4, now() + ($5 || ' days')::interval, $6, $7) RETURNING id`,
+       VALUES ($1, (SELECT id FROM devices WHERE id = $2::uuid AND user_id = $1 AND revoked_at IS NULL),
+               $3, $4, now() + ($5 || ' days')::interval, $6, $7) RETURNING id`,
       [
         user.id,
         meta.deviceId ?? null,
@@ -215,9 +221,11 @@ export class AuthService {
     return this.issue(user, { ...meta, deviceId: s.device_id }, s.chain_id);
   }
 
+  /** Logout revokes the whole rotation chain of this session (older access tokens included). */
   async logout(sessionId: string): Promise<void> {
     await this.db.query(
-      'UPDATE device_sessions SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL',
+      `UPDATE device_sessions SET revoked_at = now()
+       WHERE chain_id = (SELECT chain_id FROM device_sessions WHERE id = $1) AND revoked_at IS NULL`,
       [sessionId],
     );
   }

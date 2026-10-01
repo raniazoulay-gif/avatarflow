@@ -60,7 +60,11 @@ export function JoinScreen() {
         />
       </Card>
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Button kind="ghost" title={s('logout')} onPress={signOut} />
+      <Button
+        kind="ghost"
+        title={s('logout')}
+        onPress={() => void signOut().catch(() => undefined)}
+      />
     </ScrollView>
   );
 }

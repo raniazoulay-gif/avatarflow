@@ -31,7 +31,6 @@ export function tripRoutes(app: FastifyInstance, ctx: AppContext): void {
         driverId: z.string().uuid(),
         deviceId: z.string().uuid().nullable().optional(),
         monitoringRequestId: z.string().uuid().nullable().optional(),
-        isDemo: z.boolean().optional(),
       }),
       req.body,
     );

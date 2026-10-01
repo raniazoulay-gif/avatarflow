@@ -9,7 +9,9 @@
     "newArchEnabled": true,
     "extra": {
       "apiUrl": "http://10.0.2.2:4000",
-      "eas": { "projectId": "REPLACE_WITH_EAS_PROJECT_ID" }
+      "eas": {
+        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+      }
     },
     "ios": {
       "bundleIdentifier": "com.example.safedrive",
@@ -41,8 +43,20 @@
           "isIosBackgroundLocationEnabled": true
         }
       ],
-      ["expo-notifications", { "sounds": [] }],
-      "expo-secure-store"
+      [
+        "expo-notifications",
+        {
+          "sounds": []
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-localization",
+        {
+          "supportsRTL": true,
+          "forcesRTL": true
+        }
+      ]
     ]
   }
 }

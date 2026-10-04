@@ -29,7 +29,7 @@ It never enters real families, real scores or statistics.
 ```bash
 DEMO_EMAIL=parent@example.com DEMO_PASSWORD='Choose-A-Strong-1' npm run demo -- full 5
 ```
-The account is created on first use. Open the web app with the same account to watch.
+The account and its demo family are created on first use; later runs reuse that family, so every run shows up in the same dashboard. Open the web app with the same account to watch.
 
 **Mobile:** the driver app has no client-side simulator. Demo trips are generated on the server only, so a phone can never send simulated points into a real trip. To test the phone itself, use the emulator's route playback (see [MOBILE_PERMISSIONS.md](MOBILE_PERMISSIONS.md#testing-permissions)).
 

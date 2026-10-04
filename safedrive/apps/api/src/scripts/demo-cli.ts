@@ -38,11 +38,27 @@ async function main(): Promise<void> {
     });
   }
   const tok = session.accessToken;
-  const fam = await req<{ familyId: string; driverId: string }>('/demo/families', 'POST', {}, tok);
+  // Reuse the demo family the dashboard shows (the first one), like the Demo page does.
+  // A new family per run would hide the run from the dashboard and hit the per-account cap.
+  const families = await req<Array<{ id: string; isDemo: boolean; role: string }>>(
+    '/families',
+    'GET',
+    undefined,
+    tok,
+  );
+  const existing = families.find((f) => f.isDemo && f.role === 'PARENT');
+  const existingDriver = existing
+    ? (
+        await req<Array<{ id: string }>>(`/families/${existing.id}/drivers`, 'GET', undefined, tok)
+      )[0]
+    : undefined;
+  const driverId =
+    existingDriver?.id ??
+    (await req<{ familyId: string; driverId: string }>('/demo/families', 'POST', {}, tok)).driverId;
   const run = await req<{ id: string; tripId: string }>(
     '/demo/runs',
     'POST',
-    { driverId: fam.driverId, scenarioId, speedFactor: Number(speed) },
+    { driverId, scenarioId, speedFactor: Number(speed) },
     tok,
   );
   console.log(

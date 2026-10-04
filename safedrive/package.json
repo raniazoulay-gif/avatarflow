@@ -9,7 +9,7 @@
     "apps/web"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.9"
   },
   "scripts": {
     "build": "npm run build -w @safedrive/core && npm run build -w @safedrive/api && npm run build -w @safedrive/web",
